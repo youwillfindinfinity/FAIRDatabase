@@ -8,9 +8,12 @@ from flask import (
     redirect,
     Blueprint,
     url_for,
+    abort,
+    g,
 )
 
 from src.auth.decorators import login_required
+from src.dashboard.helpers import assert_can_modify_table
 from .form import DataGeneralizationHandler, DataP29ScoreHandler
 
 import asyncio
@@ -19,7 +22,7 @@ routes = Blueprint("data_generalization_routes", __name__)
 
 
 @routes.route("/data_generalization", methods=["GET", "POST"])
-@login_required()
+@login_required("admin", "curator")
 def data_generalization():
     """
     Perform data generalization through a user-guided, stepwise process.
@@ -64,7 +67,7 @@ def data_generalization():
 
 
 @routes.route("/consolidated_return", methods=["GET", "POST"])
-@login_required()
+@login_required("admin", "curator")
 def consolidated_return():
     """
     Handles step transitions in the data generalization process by updating
@@ -131,7 +134,7 @@ def consolidated_return():
 
 
 @routes.route("/p29score", methods=["GET", "POST"])
-@login_required()
+@login_required("admin", "curator", "accessor")
 def data_p29score():
     """
     Calculate the p29 score based on selected quasi-identifiers and sensitive attributes.
@@ -156,13 +159,18 @@ def data_p29score():
 
 
 @routes.route("/upload_metadata/<table_name>", methods=["GET", "POST"])
-@login_required()
+@login_required("admin", "curator")
 def upload_metadata(table_name):
     """Upload sample metadata for a dataset."""
     from .metadata_helpers import validate_metadata_csv, store_metadata
-    from flask import flash, g
+    from flask import flash
 
     conn = g.db
+    with conn.cursor() as ownership_cur:
+        try:
+            assert_can_modify_table(ownership_cur, table_name, g.user, g.role)
+        except PermissionError:
+            abort(403)
 
     if request.method == "POST":
         if 'metadata_file' not in request.files:

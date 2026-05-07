@@ -411,6 +411,7 @@ services:
       # boot, so existing DB volumes are covered without requiring a reset.
       - ./migrate_schema.sql:/docker-entrypoint-initdb.d/migrations/100-fd-schema.sql:Z
       - ./pbpk_schema.sql:/docker-entrypoint-initdb.d/migrations/101-fd-pbpk.sql:Z
+      - ./rbac_schema.sql:/docker-entrypoint-initdb.d/migrations/102-fd-rbac.sql:Z
     ports:
     - "5433:5432"
     healthcheck:

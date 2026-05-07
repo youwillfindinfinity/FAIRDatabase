@@ -12,7 +12,32 @@ from flask import (
     flash,
     url_for,
 )
-from config import supabase_extension
+from config import supabase_extension, get_db
+
+
+def _ensure_default_role(user_id: str) -> None:
+    """Idempotent fallback for the auth.users → user_roles trigger.
+
+    The Postgres trigger installed by rbac_schema.sql is the authoritative path,
+    but on environments where the trigger is missing (e.g. fresh self-hosted
+    Supabase volumes that initialised before the auth schema existed) we still
+    want every new account to land with the default 'visualizer' role.
+    """
+    if not user_id:
+        return
+    db = get_db()
+    if db is None:
+        return
+    try:
+        with db.cursor() as cur:
+            cur.execute(
+                "INSERT INTO _fd.user_roles (user_id, role) "
+                "VALUES (%s, 'visualizer') ON CONFLICT (user_id) DO NOTHING",
+                (user_id,),
+            )
+        db.commit()
+    except Exception:
+        db.rollback()
 
 
 class LoginHandler:
@@ -160,5 +185,9 @@ class RegisterHandler:
         if signup_resp is None:
             flash("Signup failed. Please try again later.", "error")
             return render_template("auth/register.html", email=self.email), 500
+
+        new_user = getattr(signup_resp, "user", None)
+        if new_user is not None:
+            _ensure_default_role(getattr(new_user, "id", None))
 
         return redirect(url_for("auth_routes.login"))

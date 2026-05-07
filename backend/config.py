@@ -220,7 +220,14 @@ def init_db():
 
 
 def get_db():
-    """Get the database connection for the current request."""
+    """Get the database connection for the current request.
+
+    Connects as the configured Postgres superuser/service role. Role-based
+    access is enforced at the Flask layer (see ``src/auth/decorators.py``) and
+    by explicit ``owner_id`` filters in handlers. The RLS policies installed
+    by ``rbac_schema.sql`` provide a second line of defence for any non-
+    superuser caller (edge functions, direct psql, future API gateways).
+    """
     if "db" not in g:
         g.db = init_db()
     return g.db

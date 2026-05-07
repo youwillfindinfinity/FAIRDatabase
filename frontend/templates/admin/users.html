@@ -1,0 +1,68 @@
+{% extends "dashboard/layout.html" %}
+{% block title %}FAIRMicrobiome | Admin · Users{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+   {% with messages = get_flashed_messages(with_categories=true) %}
+   {% if messages %}
+      <div class="container mt-3">
+         {% for category, message in messages %}
+         <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+         </div>
+         {% endfor %}
+      </div>
+   {% endif %}
+   {% endwith %}
+   <h1>User management
+      <small class="text-muted">Approve and assign roles for FAIRDatabase users.</small>
+   </h1>
+   <div style="height:2vh;"></div>
+   <div class="container">
+      <div class="card">
+         <div class="card-body">
+            <table class="table table-hover align-middle">
+               <thead>
+                  <tr>
+                     <th scope="col">Email</th>
+                     <th scope="col">Role</th>
+                     <th scope="col" style="width: 1%;"></th>
+                  </tr>
+               </thead>
+               <tbody>
+                  {% for u in users %}
+                  <tr>
+                     <td>
+                        {{ u.email }}
+                        {% if u.id == current_user_id %}
+                        <span class="badge bg-secondary ms-2">you</span>
+                        {% endif %}
+                     </td>
+                     <td>
+                        <form method="post"
+                              action="{{ url_for('admin_routes.assign_role', user_id=u.id) }}"
+                              class="d-flex align-items-center gap-2 mb-0">
+                           <select class="form-select form-select-sm" name="role"
+                                   {% if u.id == current_user_id %}disabled{% endif %}>
+                              {% for r in allowed_roles %}
+                              <option value="{{ r }}" {% if r == u.role %}selected{% endif %}>{{ r }}</option>
+                              {% endfor %}
+                           </select>
+                           <button type="submit" class="btn btn-sm btn-primary-custom"
+                                   {% if u.id == current_user_id %}disabled{% endif %}>
+                              Save
+                           </button>
+                        </form>
+                     </td>
+                     <td></td>
+                  </tr>
+                  {% else %}
+                  <tr><td colspan="3" class="text-muted text-center">No users found.</td></tr>
+                  {% endfor %}
+               </tbody>
+            </table>
+         </div>
+      </div>
+   </div>
+</div>
+{% endblock %}
