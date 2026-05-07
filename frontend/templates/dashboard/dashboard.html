@@ -35,6 +35,7 @@
                </div>
             </div>
          </div>
+         {% if can_upload %}
          <div class="col-md-4 mb-3">
             <div class="card">
                <div class="card-color-box">
@@ -63,6 +64,23 @@
                </div>
             </div>
          </div>
+         {% endif %}
+         {% if is_admin %}
+         <div class="col-md-4 mb-3">
+            <div class="card">
+               <div class="card-color-box">
+                  <i class="fa-solid fa-user-shield"></i>
+               </div>
+               <div class="card-body">
+                  <h5 class="card-title">Admin</h5>
+                  <p class="card-text">Manage users and dataset access grants.</p>
+               </div>
+               <div class="card-footer">
+                  <a href="/admin/users" role="button" class="btn btn-primary-custom">Admin console</a>
+               </div>
+            </div>
+         </div>
+         {% endif %}
       </div>
       <div class="row mt-3">
          <div class="col-md-4 mb-3">

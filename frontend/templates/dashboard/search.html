@@ -51,6 +51,9 @@
                <tr>
                   <th scope="col">#</th>
                   <th scope="col">Table</th>
+                  {% if can_upload or is_admin %}
+                  <th scope="col">Actions</th>
+                  {% endif %}
                </tr>
             </thead>
             <tbody id="tableBody" style="color: black;">
@@ -58,12 +61,19 @@
                <tr class="{% if loop.index > 10 %}hidden-row{% endif %}">
                   <th scope="row">{{ loop.index }}</th>
                   <td><a data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Open this dataset" href="{{ url_for('dashboard_routes.table_preview', table_name=table_name) }}">{{ table_name }}</a></td>
+                  {% if can_upload or is_admin %}
+                  <td>
+                     {% if manageable and table_name in manageable %}
+                     <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin_routes.grants', dataset_id=manageable[table_name]) }}">Manage access</a>
+                     {% endif %}
+                  </td>
+                  {% endif %}
                </tr>
                {% endfor %}
             </tbody>
             <tfoot style="color: black;">
                <tr>
-                  <td colspan="2">
+                  <td colspan="3">
                      <div class="row">
                         <div class="col">
                            <div class="form-group">
@@ -127,6 +137,7 @@
                <tr>
                   <th scope="col">#</th>
                   <th scope="col">Table</th>
+                  <th scope="col"></th>
                </tr>
             </thead>
             <tbody id="tableBody" style="color: black;">
@@ -139,7 +150,7 @@
             </tbody>
             <tfoot style="color: black;">
                <tr>
-                  <td colspan="2">
+                  <td colspan="3">
                      <div class="row">
                         <div class="col">
                            <div class="form-group">

@@ -31,6 +31,15 @@ Steps to set up and use the Microbiome FAIR Database locally.
 - [Quick Start (Podman)](#quick-start-podman)
 - [Development Setup (Run Flask locally)](#development-setup-run-flask-locally)
 - [Running Tests](#running-tests)
+- [Setting Up RBAC for Your Institute](#setting-up-rbac-for-your-institute)
+  - [Roles at a Glance](#roles-at-a-glance)
+  - [Step 1 — Bootstrap the First Admin](#step-1--bootstrap-the-first-admin)
+  - [Step 2 — Onboard New Users](#step-2--onboard-new-users)
+  - [Step 3 — Assign Roles](#step-3--assign-roles)
+  - [Step 4 — Grant Dataset Access](#step-4--grant-dataset-access)
+  - [Step 5 — Audit Changes](#step-5--audit-changes)
+  - [Service Ports Reference](#service-ports-reference)
+  - [Operational Notes](#operational-notes)
 - [Application Routes](#application-routes)
   - [Authentication](#authentication)
   - [Dashboard](#dashboard)
@@ -131,6 +140,7 @@ Open `backend/.env` and change these three variables from `change-me` to values 
 - `SECRET_KEY` — Secret key for Flask session security. Use a long random string.
 
 **Optional variables (leave as defaults unless needed):**
+- `ADMIN_EMAIL` — Email address to auto-promote to admin role on every Flask boot. Leave empty to disable auto-promotion (manual role assignment via `/admin/users`).
 - `SITE_URL` — Where the app runs (default: `http://localhost:5000`).
 - `SMTP_*` — Email server settings. Leave blank if you don't need email sending.
 - `DISABLE_SIGNUP` — Set to `true` to prevent new user registrations.
@@ -223,12 +233,18 @@ docker compose down -v
 
 ### Database schemas
 
-Application-level schemas — `_fd` (CSV-upload metadata, from `backend/migrate_schema.sql`) and the PBPK tables (`backend/pbpk_schema.sql`) — are applied **automatically** on a fresh DB and on every Flask container boot:
+Application-level schemas are applied **automatically** on fresh DB init and on every Flask container boot:
 
-- On a fresh `db` volume, both files are mounted into `/docker-entrypoint-initdb.d/migrations/` and run by Postgres at first init.
-- On every `flask-app` container start, the entrypoint re-applies them via `psql`. Both files are idempotent (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`), so re-runs are safe and cover databases that pre-date the init-script mounts.
+**Core schemas:**
+- `backend/migrate_schema.sql` — `_fd` schema for CSV-upload metadata and tables
+- `backend/pbpk_schema.sql` — PBPK simulation schema and tables
+- `backend/rbac_schema.sql` — Role-based access control: user roles, dataset grants, RLS policies, audit tables
 
-You should not need to run `psql -f migrate_schema.sql` or `psql -f pbpk_schema.sql` manually. If you add a new schema file, drop it under `backend/`, mount it in `docker-compose.yml` next to the existing two, and add it to the `for sql in ...` loop in `docker-entrypoint.sh`.
+**How it works:**
+- On a fresh `db` volume, all three files are mounted into `/docker-entrypoint-initdb.d/migrations/` and run by Postgres at first init (in order: 100-fd-schema, 101-fd-pbpk, 102-fd-rbac).
+- On every `flask-app` container start, the entrypoint re-applies all three via `psql` (see `docker-entrypoint.sh` line 17). All files are idempotent (`IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `CREATE POLICY IF NOT EXISTS`), so re-runs are safe.
+
+**Custom schemas:** To add a new schema file, drop it under `backend/`, mount it in `docker-compose.yml` next to the existing three (with a new sequence number like `103-`), and add it to the `for sql in ...` loop in `docker-entrypoint.sh`.
 
 ### Troubleshooting
 
@@ -356,6 +372,126 @@ There is no default user account. You must register before you can log in:
 
 ---
 
+## Setting Up RBAC for Your Institute
+
+This is the end-to-end guide for an institute deploying FAIRDatabase from scratch and controlling who can do what. It assumes you have followed the Quick Start above and the stack is reachable on `http://localhost:5000`.
+
+### Roles at a Glance
+
+Every authenticated user holds **exactly one** role from `_fd.user_role`:
+
+| Role           | Sign-up default? | Upload datasets | Modify datasets         | Read datasets                    | Manage roles | Manage grants            |
+|----------------|------------------|-----------------|-------------------------|----------------------------------|--------------|--------------------------|
+| **admin**      | no               | yes             | any dataset             | any dataset                      | yes          | any dataset              |
+| **curator**    | no               | yes             | datasets they own       | own + explicitly granted         | no           | datasets they own        |
+| **accessor**   | no               | no              | no                      | only datasets explicitly granted | no           | no                       |
+| **visualizer** | **yes**          | no              | no                      | catalog + aggregate stats only   | no           | no                       |
+
+New sign-ups always land in `visualizer`. An admin must promote them before they can upload or read raw data.
+
+### Step 1 — Bootstrap the First Admin
+
+There is no admin account by default. The cleanest path is the boot-time bootstrap.
+
+1. Decide which email will be the institute admin (e.g. `data-steward@your-institute.org`). This email must belong to a Supabase user, so register it first at `http://localhost:5000/auth/register`.
+2. Set the email in `backend/.env`:
+   ```
+   ADMIN_EMAIL=data-steward@your-institute.org
+   ```
+3. Restart the Flask container (or the local Flask process):
+   ```bash
+   cd backend && docker compose restart flask-app
+   ```
+4. On boot, `_bootstrap_admin` (in `backend/app.py`) looks up that email via the Supabase admin API and **upserts** `_fd.user_roles` to `admin`. The action is idempotent — leave `ADMIN_EMAIL` set permanently if you want the admin role re-asserted on every boot (useful if someone accidentally demotes the admin).
+5. Log in as that user. You should now see an **Admin** entry in the dashboard navigation; the admin console lives at `http://localhost:5000/admin/users`.
+
+If you do not want a fixed admin (e.g. you are migrating from another system), you can bootstrap directly in Postgres instead:
+
+```bash
+docker compose exec db psql -U postgres -c \
+  "INSERT INTO _fd.user_roles (user_id, role, assigned_by)
+   VALUES ('<uuid-from-supabase-studio>', 'admin', NULL)
+   ON CONFLICT (user_id) DO UPDATE SET role = 'admin';"
+```
+
+### Step 2 — Onboard New Users
+
+There are two patterns; pick whichever fits your institute:
+
+**Self-service (default).** Anyone can register at `http://localhost:5000/auth/register`. New accounts default to `visualizer` (catalog + aggregate stats only), so self-service is safe — they cannot reach raw data until an admin promotes them.
+
+**Closed registration.** Set `DISABLE_SIGNUP=true` in `backend/.env` and re-run `bash scripts/bootstrap.sh` then `docker compose up -d`. New users must then be created by an admin via Supabase Studio (`http://localhost:3000` → Authentication → Users → *Add user*). The dashboard password is whatever you set as `DASHBOARD_PASSWORD`.
+
+Email verification is off by default (`ENABLE_EMAIL_AUTOCONFIRM=true`). Flip it to `false` if your institute requires email confirmation; then configure the `SMTP_*` variables.
+
+### Step 3 — Assign Roles
+
+Logged in as `admin`, go to `http://localhost:5000/admin/users`. The page lists every Supabase user with their current role and a dropdown to change it.
+
+- **Promote a researcher to `curator`** so they can upload and own datasets.
+- **Promote an analyst to `accessor`** so you can later grant them specific datasets.
+- **Demote** a user back to `visualizer` to revoke all dataset access in one step.
+
+Every change writes a row to `_fd.role_audit` recording who changed whom, when, and from what to what.
+
+Programmatic alternative (admin only):
+
+```bash
+curl -X POST http://localhost:5000/admin/users/<user-uuid>/role \
+  --cookie "session=<your-flask-session-cookie>" \
+  -d "role=curator"
+```
+
+### Step 4 — Grant Dataset Access
+
+Datasets are owned by whoever uploaded them (`metadata_tables.owner_id`). Owners — and any admin — can grant read access to other users.
+
+1. Navigate to `http://localhost:5000/dashboard/search` and find the dataset's metadata-table ID (visible to admins/owners).
+2. Open `http://localhost:5000/admin/datasets/<dataset_id>/grants`.
+3. Pick a user from the *Grant access* dropdown and submit. The grantee can now read that dataset via `/search`, `/display`, `/table_preview`, and the `get-dataset-visualization` edge function.
+4. To revoke, click *Revoke* next to the user in the grants list.
+
+Grants are scoped per dataset; there is no "read everything" grant short of the `admin` role. Every grant/revoke is recorded in `_fd.grant_audit`.
+
+### Step 5 — Audit Changes
+
+Two append-only audit tables capture every privileged action:
+
+| Table              | Captures                                                                     |
+|--------------------|------------------------------------------------------------------------------|
+| `_fd.role_audit`   | `user_id`, `old_role`, `new_role`, `changed_by`, `changed_at`                |
+| `_fd.grant_audit`  | `dataset_id`, `user_id`, `action` (`granted`/`revoked`), `changed_by`, `at`  |
+
+Inspect them via Supabase Studio (`http://localhost:3000` → Table Editor → `_fd` schema) or directly:
+
+```bash
+docker compose exec db psql -U postgres -c \
+  "SELECT * FROM _fd.role_audit ORDER BY changed_at DESC LIMIT 20;"
+```
+
+Both tables are written by the Flask handlers in `backend/src/admin/form.py`. They are not exposed via the web UI — read them in Postgres if you need a compliance trail.
+
+### Service Ports Reference
+
+| Port  | Service                | Bound by             | Used for                                                |
+|-------|------------------------|----------------------|---------------------------------------------------------|
+| 5000  | Flask app              | `flask-app` container | User-facing UI; admin console; auth routes              |
+| 3000  | Supabase Studio        | `studio` container   | DB inspection; manual user creation; viewing audit logs |
+| 8000  | Supabase Kong (API)    | `kong` container     | Auth + edge functions (called by the Flask app)         |
+| 5433  | PostgreSQL (host map)  | `db` container       | Local Flask → DB; `psql` from your machine              |
+| 5432  | PostgreSQL (in-network)| `db` container       | Service-to-service inside the Docker network only       |
+
+If any of these collide with another service on the host, change the host-side port mapping in `backend/docker-compose.yml` (left side of `host:container`). Do **not** change the in-container ports — they are referenced by other Supabase services.
+
+### Operational Notes
+
+- **Defense in depth.** RBAC is enforced at three layers: the Flask `@login_required(*roles)` decorator, handler-side ownership/grant checks (`backend/src/dashboard/helpers.py`), and Postgres RLS policies (`backend/rbac_schema.sql`). The Flask DB user is currently a superuser, so RLS protects only direct DB / edge-function callers — layers 1 and 2 are load-bearing for the web app. See `CLAUDE.md` for how to tighten this if you want RLS to bite on the Flask path too.
+- **Edge functions** at `/functions/v1/get-dataset-stats` and `/functions/v1/get-dataset-visualization` re-check role + ownership/grant via `supabase/functions/_shared/authz.ts`. They are safe to expose to first-party clients (e.g. an institute portal) using a user JWT.
+- **Schema migrations** for the RBAC tables live in `backend/rbac_schema.sql` and re-apply on every Flask boot. Safe to re-run; no destructive operations.
+- **Disabling auto-promotion.** Once your team is set up, you can leave `ADMIN_EMAIL` set (idempotent re-assertion) or clear it. Clearing has no effect on existing roles — it only stops the boot-time check.
+
+---
+
 ## Application Routes
 
 ### Authentication
@@ -388,107 +524,144 @@ In addition to that, both `email` and `username` must be unique.
 
 ### Dashboard
 
-#### `/dashboard` (**GET**) – Displays the user dashboard. Requires the user to be logged in.
+#### `/dashboard` (**GET**) – Displays the user dashboard. Any authenticated user.
 
 #### Responses:
 - **200**: Renders the dashboard page with the user's email and the current request path.
+- **401**: User not logged in.
 
-#### `/upload` (**POST**) – Uploads a CSV file, processes it, and stores chunks in PostgreSQL tables. Requires a multipart form-data body with the following fields:
+#### `/upload` (**POST**) – Uploads a CSV file, processes it, and stores chunks in PostgreSQL tables. **Requires: admin, curator**
 
-- `file` (file): The CSV file to upload. This field is required.
-- `description` (string, optional): An optional description of the file.
-- `origin` (string, optional): The origin/source of the data.
+File must be multipart form-data with:
+- `file` (file): The CSV file to upload. Required.
+- `description` (string, optional): Description of the file.
+- `origin` (string, optional): Source or origin of the data.
 
 #### Responses:
 - **200**: File uploaded and processed successfully.
-- **400**: Error during file processing (e.g., missing file, invalid CSV format).
+- **400**: Error during file processing (missing file, invalid CSV format, etc.).
+- **401**: User not logged in.
+- **403**: User does not have upload permission (not admin or curator).
 
-#### `/display` (**GET**, **POST**) – Searches and downloads filtered database tables as zipped CSV files. Requires the user to be logged in.
+#### `/search` (**GET**, **POST**) – Search and display table names. **Requires: admin, curator, accessor**
+
+Curators see only tables they own; accessors see only tables they've been granted access to.
 
 #### Parameters:
-- `user` (session, string): The session identifier of the logged-in user.
-- `search_term` (session, array of strings): A list of search parameters:
-  - `column_name` (string): The column to search.
-  - `match_value` (string): The value to match against.
-  - `is_zero_filter` (boolean): Flag to filter for rows where the value is zero.
+- `search` (formData, string, optional): Column name to search for.
+- `value0`, `value1` (formData, string, optional): Filter values for search results.
 
 #### Responses:
-- **200**: A ZIP file containing matched table CSVs.
+- **200**: Renders search page with matching table names.
+- **401**: User not logged in.
+- **403**: User does not have read permission.
+
+#### `/display` (**GET**, **POST**) – Download filtered database tables as zipped CSV files. **Requires: admin, curator, accessor**
+
+Returns only tables the user is authorized to read. Same access controls as `/search`.
+
+#### Parameters:
+- `search_term` (session, array): Search parameters `[column_name, match_value, is_zero_filter]`.
+
+#### Responses:
+- **200**: ZIP file containing matched CSVs.
 - **400**: Invalid input or query failure.
 - **401**: User not logged in.
+- **403**: User not authorized to access one or more tables (returns 404 to avoid existence leak).
 - **404**: No matching data found.
-- **500**: Query execution or schema failure.
+- **500**: Query execution failure.
 
-#### `/update` (**GET**, **POST**) – Renders and handles user update requests. Requires the user to be logged in.
+#### `/table_preview` (**GET**) – Preview table data and metadata statistics. **Requires: admin, curator, accessor**
 
 #### Parameters:
-- `user_email` (session, string): The email of the logged-in user.
+- `table_name` (query, string, required): Table to preview.
+- `search_term` (session, string, optional): Search term from previous query.
 
 #### Responses:
-- **200**: Renders the update page for the user.
+- **200**: Table preview with statistics (first 15 rows, 8 columns).
+- **400**: Table name missing.
 - **401**: User not logged in.
-- **404**: Column not found in any table.
-- **500**: Internal server error during update operation.
+- **403**: User not authorized to access this table (returned as 404 to avoid existence leak).
+- **404**: Table not found.
+- **500**: Data fetching error.
 
-#### `/table_preview` (**GET**, **POST**) – Previews the table data and displays metadata statistics. Requires the user to be logged in.
+#### `/update` (**POST**) – Update data in a dataset. **Requires: admin, curator (only owns)**
 
 #### Parameters:
-- `search_term` (session, string, optional): The term used to search within table columns.
-- `table_name` (query, string, required): The name of the table to preview.
+- `row_id` (formData, string): ID of row to update.
+- `column_name` (formData, string): Column to modify.
+- `new_value` (formData, string): New value.
 
 #### Responses:
-- **200**: Renders the preview of the table with metadata statistics.
-- **400**: Table name is missing or invalid request.
+- **200**: Renders update page.
 - **401**: User not logged in.
-- **404**: Table not found in the specified schema.
-- **500**: Internal server error during data fetching or query execution.
+- **403**: User cannot modify this dataset.
+- **404**: Column or data not found.
+- **500**: Update failed.
 
-#### `/return_to_dashboard` (**GET**) – Returns the user to the dashboard and resets session flags related to file upload and data review. Requires the user to be logged in.
-
-#### Parameters:
-- `user_email` (session, string): The email of the currently logged-in user.
+#### `/return_to_dashboard` (**GET**) – Reset session flags and return to dashboard. Any authenticated user.
 
 #### Responses:
-- **200**: Renders the dashboard page and resets session flags.
+- **200**: Dashboard page with flags reset.
 - **401**: User not logged in.
 
 ---
 
 ### Data Management
 
-#### `/data_generalization` (**GET**, **POST**) – Perform data generalization through a user-guided, stepwise process. Users can upload a CSV file, review and drop columns, address missing values, select quasi-identifiers, and perform mappings for data generalization.
+#### `/data_generalization` (**GET**, **POST**) – Data generalization workflow. **Requires: admin, curator**
+
+Users can upload CSV files, review and drop columns, address missing values, select quasi-identifiers, and perform mappings.
 
 #### Parameters:
-- `file` (formData, file): CSV file to upload for processing (optional).
-- `submit_button` (formData, string): Indicates the form action submitted by the user (required). 
+- `file` (formData, file): CSV file to upload (optional).
+- `submit_button` (formData, string): Action identifier (required).
 
 #### Responses:
-- **200**: Data generalization form rendered, or after successful file upload and form submission.
+- **200**: Data generalization form rendered, or after successful upload/submission.
+- **400**: Bad input, session error, or expired session.
 - **401**: User not authenticated.
-- **400**: Bad input or session error, such as no file uploaded or an expired session.
+- **403**: User does not have data generalization permission (not admin or curator).
 
-#### `/consolidated_return` (**GET**, **POST**) – Handles step transitions in the data generalization workflow by updating session states and redirecting to the appropriate view.
+#### `/consolidated_return` (**GET**, **POST**) – Workflow step transitions. **Requires: admin, curator**
 
-#### Parameters:
-- `state` (formData, string, required): A step identifier (`"1"`, `"2"`, `"3"`, or `"4"`) used to reset or progress the session in the generalization process.
-
-#### Responses:
-- **302**: Redirect to the `/data_generalization` page with updated session context depending on the provided state.
-
-#### `/p29score` (**GET**, **POST**) – Handles the calculation of the p29 privacy risk score based on selected quasi-identifiers and sensitive attributes from the uploaded dataset.
+Updates session state and redirects.
 
 #### Parameters:
-- `submit_button` (formData, string, required): Indicates the submitted action (e.g., "Calculate Score").
-- `quasi_identifiers` (formData, array of strings, optional): List of selected quasi-identifying columns.
-- `sensitive_attributes` (formData, array of strings, optional): List of selected sensitive attribute columns.
+- `state` (formData, string): Step identifier (`"1"`, `"2"`, `"3"`, `"4"`).
 
 #### Responses:
-- **200**:
-  - On GET: Renders the p29 score form.
-  - On POST: Renders form with calculated p29 score if valid input is provided.
-- **400**:
-  - If session is expired or file is missing/corrupt.
-  - If quasi-identifiers and sensitive attributes overlap or are not provided.
+- **302**: Redirect to `/data_generalization` with updated session.
+- **403**: User not authorized.
+
+#### `/p29score` (**GET**, **POST**) – Calculate p29 privacy risk score. **Requires: admin, curator, accessor**
+
+Computes privacy risk based on quasi-identifiers and sensitive attributes.
+
+#### Parameters:
+- `submit_button` (formData, string): Action (e.g., "Calculate Score").
+- `quasi_identifiers` (formData, array, optional): Quasi-identifying columns.
+- `sensitive_attributes` (formData, array, optional): Sensitive attribute columns.
+
+#### Responses:
+- **200**: Form rendered (GET) or score calculated (POST).
+- **400**: Expired session, missing file, or overlapping column selections.
+- **401**: User not authenticated.
+- **403**: User not authorized.
+
+#### `/upload_metadata/<table_name>` (**GET**, **POST**) – Upload sample metadata for a dataset. **Requires: admin, curator (owns table)**
+
+Allows curators to attach sample metadata (e.g., taxonomy, units) to a dataset they own. Admins can upload metadata for any dataset.
+
+#### Parameters:
+- `table_name` (path, string): Name of the dataset table.
+- `metadata_file` (formData, file, POST only): CSV file with sample metadata.
+
+#### Responses:
+- **200**: Metadata upload form (GET) or success (POST).
+- **401**: User not authenticated.
+- **403**: User cannot modify this table (not owner or admin).
+- **404**: Table not found.
 
 ---
 
@@ -504,32 +677,131 @@ In addition to that, both `email` and `username` must be unique.
 
 ---
 
-### Privacy Processing Route
+### Privacy Processing Routes
 
-`/privacy_processing` (**GET**) – Runs privacy enforcement and computes privacy metrics on the uploaded dataset.
+#### `/privacy_processing` (**GET**) – Compute privacy metrics. **Requires: admin, curator, accessor**
+
+Computes and displays privacy enforcement results: p29 score, k-anonymity, l-diversity, t-closeness.
 
 #### Responses:
-- **200**:
-  - If the uploaded file exists and is valid, renders `/data/privacy_processing.html` with:
-    - `p29` score
-    - `k-anonymity`, `l-diversity`, `t-closeness` values
-    - Lists of problems and reasons (top 10 each)
-- **400**:
-  - If the uploaded file is missing, empty, or cannot be read
-  - If the session is expired or `uploaded_filepath` is not found
-- **401**:
-  - Returned if the user is not authenticated (enforced via `@login_required(api=True)`)
+- **200**: Renders privacy metrics with top-10 problems and reasons.
+- **400**: Uploaded file missing, empty, or unreadable; expired session.
+- **401**: User not authenticated.
+- **403**: User not authorized.
 
 ---
 
-`/differential_privacy` (**GET**, **POST**) – Adds differential privacy noise to selected columns of the uploaded dataset.
+#### `/differential_privacy` (**GET**, **POST**) – Apply differential privacy noise. **Requires: admin, curator**
+
+Adds noise to selected columns of the uploaded dataset.
 
 #### Responses:
-- **200**:
-  - **GET**: Renders `/privacy/differential_privacy.html` with a list of columns (excluding quasi-identifiers and sensitive attributes).
-  - **POST**: If valid columns are selected, adds noise, updates the dataset, and re-renders the page with confirmation.
-- **400**:
-  - If the uploaded file is missing or unreadable.
-  - If selected columns are invalid (e.g., overlapping or incomplete selection).
-- **401**:
-  - Returned if the user is not authenticated (enforced via `@login_required(api=True)`).
+- **200**: GET renders form; POST applies noise and re-renders with confirmation.
+- **400**: File missing/unreadable or invalid column selection.
+- **401**: User not authenticated.
+- **403**: User not authorized.
+
+---
+
+### Admin Routes
+
+#### `/admin/users` (**GET**) – User role management console. **Requires: admin**
+
+Lists all Supabase users with their current roles (admin, curator, accessor, visualizer).
+
+#### Responses:
+- **200**: Renders user list with role assignment form.
+- **401**: User not authenticated.
+- **403**: User is not admin.
+
+#### `/admin/users/<user_id>/role` (**POST**) – Assign or change a user's role. **Requires: admin**
+
+#### Parameters:
+- `user_id` (path, string): UUID of target user.
+- `role` (formData, string): New role (`admin`, `curator`, `accessor`, or `visualizer`).
+
+#### Responses:
+- **302**: Redirect to `/admin/users` with success or error message.
+- **400**: Invalid role value.
+- **401**: User not authenticated.
+- **403**: User is not admin.
+
+#### `/admin/datasets/<dataset_id>/grants` (**GET**) – View and manage dataset access grants. **Requires: admin, curator (owns dataset)**
+
+Admins can manage any dataset; curators can only manage datasets they own.
+
+#### Parameters:
+- `dataset_id` (path, int): Metadata table ID of the dataset.
+
+#### Responses:
+- **200**: Renders grants page with current grantees and available users.
+- **401**: User not authenticated.
+- **403**: User cannot manage this dataset.
+- **404**: Dataset not found or user not authorized.
+
+#### `/admin/datasets/<dataset_id>/grants` (**POST**) – Grant dataset access to a user. **Requires: admin, curator (owns dataset)**
+
+#### Parameters:
+- `dataset_id` (path, int): Metadata table ID.
+- `user_id` (formData, string): UUID of user to grant access.
+
+#### Responses:
+- **302**: Redirect to grants page with success/error message.
+- **400**: Missing user_id or invalid input.
+- **401**: User not authenticated.
+- **403**: User cannot manage this dataset.
+
+#### `/admin/datasets/<dataset_id>/grants/<user_id>/revoke` (**POST**) – Revoke dataset access. **Requires: admin, curator (owns dataset)**
+
+#### Parameters:
+- `dataset_id` (path, int): Metadata table ID.
+- `user_id` (path, string): UUID of user to revoke access from.
+
+#### Responses:
+- **302**: Redirect to grants page with success/error message.
+- **401**: User not authenticated.
+- **403**: User cannot manage this dataset.
+- **404**: Grant not found.
+
+---
+
+### Edge Functions (Supabase)
+
+Edge functions enforce role-based authorization independently of the Flask backend (defense-in-depth).
+
+#### `/functions/v1/get-dataset-stats` (**POST**) – Aggregate dataset statistics. **Requires: authenticated JWT**
+
+Returns statistics for all datasets the caller is authorized to read.
+
+**Authorization:** Requests must include a valid Supabase JWT in the `Authorization: Bearer <token>` header. Service-role tokens see all datasets; user tokens see only their own + granted datasets.
+
+#### Request:
+```json
+{ }
+```
+
+#### Responses:
+- **200**: JSON array of dataset statistics (row count, column count, etc.).
+- **400**: Query execution error.
+- **401**: Missing or invalid Authorization header.
+- **500**: Database connection error.
+
+#### `/functions/v1/get-dataset-visualization` (**POST**) – Visualization data for a dataset. **Requires: authenticated JWT**
+
+Returns visualization metadata for a specific table if the caller is authorized.
+
+**Authorization:** User must own the dataset or have an explicit grant. Non-existent datasets return 404 (not 403) to avoid leaking existence.
+
+#### Request:
+```json
+{
+  "table_name": "mydata_p1"
+}
+```
+
+#### Responses:
+- **200**: Visualization data for the requested table.
+- **400**: Missing table_name or query error.
+- **401**: Missing or invalid Authorization header.
+- **403**: User not authorized to access this table (also returned for non-existent tables to avoid existence leaks).
+- **500**: Database error.

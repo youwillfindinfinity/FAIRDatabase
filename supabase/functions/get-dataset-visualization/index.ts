@@ -1,6 +1,7 @@
 // Edge Function to generate beta diversity visualization data
 // @ts-ignore
 import * as postgres from 'https://deno.land/x/postgres@v0.17.0/mod.ts'
+import { parseCaller, canReadTable } from '../_shared/authz.ts'
 
 // Import PCoA calculation module from another repository
 // @ts-ignore
@@ -150,6 +151,23 @@ export default async function handler(req: Request): Promise<Response> {
     const connection = await pool.connect()
 
     try {
+      // Authorize caller against requested table.
+      const caller = parseCaller(req)
+      if (!caller.userId && !caller.isService) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Unauthorized' }),
+          { headers: { ...getCorsHeaders(req.headers.get('Origin')), 'Content-Type': 'application/json' }, status: 401 }
+        )
+      }
+      const authorized = await canReadTable(connection, caller, table_name)
+      if (!authorized) {
+        // 403 regardless of whether the table exists, to avoid leaking existence.
+        return new Response(
+          JSON.stringify({ success: false, error: 'Forbidden' }),
+          { headers: { ...getCorsHeaders(req.headers.get('Origin')), 'Content-Type': 'application/json' }, status: 403 }
+        )
+      }
+
       // Verify table exists
       const tableCheck = await connection.queryObject(
         `SELECT EXISTS (

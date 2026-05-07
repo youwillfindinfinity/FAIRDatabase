@@ -15,6 +15,110 @@ def _clean_identifier(name):
     return "".join(c for c in name if c.isalnum() or c == "_")
 
 
+def filter_owned_tables(cur, tables, user_id, role):
+    """Restrict ``tables`` to those owned by ``user_id`` for non-admin callers.
+
+    ``tables`` is an iterable of physical table names in the ``_fd`` schema.
+    Admins keep the full list. Curators get only tables whose
+    ``metadata_tables.owner_id`` matches their uuid. Other roles get nothing.
+    """
+    if role == "admin":
+        return list(tables)
+    if role != "curator" or not user_id:
+        return []
+    tables = list(tables)
+    if not tables:
+        return []
+    cur.execute(
+        "SELECT table_name FROM _fd.metadata_tables "
+        "WHERE owner_id = %s AND table_name = ANY(%s)",
+        (user_id, tables),
+    )
+    return [row[0] for row in cur.fetchall()]
+
+
+def assert_can_modify_table(cur, table_name, user_id, role):
+    """Raise PermissionError unless the caller may mutate ``table_name``.
+
+    Admins always pass. Curators pass only when they own the dataset.
+    """
+    if role == "admin":
+        return
+    if role != "curator" or not user_id:
+        raise PermissionError("forbidden")
+    cur.execute(
+        "SELECT 1 FROM _fd.metadata_tables "
+        "WHERE table_name = %s AND owner_id = %s LIMIT 1",
+        (table_name, user_id),
+    )
+    if cur.fetchone() is None:
+        raise PermissionError("forbidden")
+
+
+def filter_readable_tables(cur, tables, user_id, role):
+    """Restrict ``tables`` to those the caller is allowed to read row-level.
+
+    - admin           : everything in the input list
+    - curator         : tables they own
+    - accessor        : tables they own OR have an explicit dataset_grants row for
+    - visualizer/none : nothing (visualizers go through aggregate viz endpoints)
+    """
+    if role == "admin":
+        return list(tables)
+    if not user_id:
+        return []
+    tables = list(tables)
+    if not tables:
+        return []
+    if role == "curator":
+        cur.execute(
+            "SELECT table_name FROM _fd.metadata_tables "
+            "WHERE owner_id = %s AND table_name = ANY(%s)",
+            (user_id, tables),
+        )
+        return [row[0] for row in cur.fetchall()]
+    if role == "accessor":
+        cur.execute(
+            "SELECT m.table_name FROM _fd.metadata_tables m "
+            "WHERE m.table_name = ANY(%s) AND ("
+            "   m.owner_id = %s "
+            "   OR EXISTS (SELECT 1 FROM _fd.dataset_grants g "
+            "              WHERE g.dataset_id = m.id AND g.user_id = %s))",
+            (tables, user_id, user_id),
+        )
+        return [row[0] for row in cur.fetchall()]
+    return []
+
+
+def assert_can_read_table(cur, table_name, user_id, role):
+    """Raise PermissionError unless the caller may read ``table_name``.
+
+    Mirrors ``filter_readable_tables`` for single-table entry points.
+    """
+    if role == "admin":
+        return
+    if not user_id or role not in ("curator", "accessor"):
+        raise PermissionError("forbidden")
+    if role == "curator":
+        cur.execute(
+            "SELECT 1 FROM _fd.metadata_tables "
+            "WHERE table_name = %s AND owner_id = %s LIMIT 1",
+            (table_name, user_id),
+        )
+    else:  # accessor
+        cur.execute(
+            "SELECT 1 FROM _fd.metadata_tables m "
+            "WHERE m.table_name = %s AND ("
+            "  m.owner_id = %s "
+            "  OR EXISTS (SELECT 1 FROM _fd.dataset_grants g "
+            "             WHERE g.dataset_id = m.id AND g.user_id = %s)) "
+            "LIMIT 1",
+            (table_name, user_id, user_id),
+        )
+    if cur.fetchone() is None:
+        raise PermissionError("forbidden")
+
+
 def pg_ensure_schema_and_metadata(cur, schema):
     """
     Ensure PostgreSQL schema and metadata table exist.
@@ -41,6 +145,7 @@ def pg_ensure_schema_and_metadata(cur, schema):
             main_table TEXT NOT NULL,
             description TEXT,
             origin TEXT,
+            owner_id uuid,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         """).format(schema=schema_id)
@@ -118,8 +223,50 @@ def pg_create_data_table(cur, schema, table_name, columns, patient_col):
         )
     )
 
+    # Defense-in-depth: enable RLS on the per-dataset data table so any
+    # non-superuser caller (Supabase edge functions, direct psql, future
+    # API gateways) is gated by the curator/grant logic in
+    # _fd.can_read_dataset(). The Flask path is enforced at the decorator
+    # + handler layer (see filter_readable_tables / assert_can_read_table)
+    # because the deployment's Postgres user is a superuser/BYPASSRLS role
+    # that does not engage these policies; if you tighten POSTGRES_USER to
+    # 'authenticated' you must also wire request.jwt.claims into the
+    # connection so auth.uid() resolves -- the policies below assume that.
+    select_policy = sql.Identifier(f"{_clean_identifier(table_name)}_select")
+    write_policy = sql.Identifier(f"{_clean_identifier(table_name)}_write")
+    cur.execute(
+        sql.SQL("ALTER TABLE {schema}.{table} ENABLE ROW LEVEL SECURITY;")
+        .format(schema=schema_id, table=table_id)
+    )
+    cur.execute(
+        sql.SQL("DROP POLICY IF EXISTS {policy} ON {schema}.{table};")
+        .format(policy=select_policy, schema=schema_id, table=table_id)
+    )
+    cur.execute(
+        sql.SQL(
+            "CREATE POLICY {policy} ON {schema}.{table} FOR SELECT "
+            "USING (_fd.can_read_dataset((SELECT id FROM {schema}.metadata_tables "
+            "WHERE table_name = %s LIMIT 1)));"
+        ).format(policy=select_policy, schema=schema_id, table=table_id),
+        (table_name,),
+    )
+    cur.execute(
+        sql.SQL("DROP POLICY IF EXISTS {policy} ON {schema}.{table};")
+        .format(policy=write_policy, schema=schema_id, table=table_id)
+    )
+    cur.execute(
+        sql.SQL(
+            "CREATE POLICY {policy} ON {schema}.{table} FOR ALL "
+            "USING (_fd.current_role() = 'admin' "
+            "  OR (_fd.current_role() = 'curator' AND EXISTS "
+            "       (SELECT 1 FROM {schema}.metadata_tables m "
+            "         WHERE m.table_name = %s AND m.owner_id = auth.uid())));"
+        ).format(policy=write_policy, schema=schema_id, table=table_id),
+        (table_name,),
+    )
 
-def pg_insert_metadata(cur, schema, table_name, main_table, description, origin):
+
+def pg_insert_metadata(cur, schema, table_name, main_table, description, origin, owner_id=None):
     """
     Insert a record into _fd.metadata_tables for tracking.
     ---
@@ -152,15 +299,20 @@ def pg_insert_metadata(cur, schema, table_name, main_table, description, origin)
         type: string
         required: false
         description: Source or origin of the file.
+      - name: owner_id
+        in: code
+        type: uuid
+        required: false
+        description: UUID of the user who owns this dataset (for RBAC grants).
     """
     schema_id = sql.Identifier(f"_{_clean_identifier(schema)}")
     cur.execute(
         sql.SQL("""
         INSERT INTO {schema}.metadata_tables (table_name, main_table,
-          description, origin)
-        VALUES (%s, %s, %s, %s);
+          description, origin, owner_id)
+        VALUES (%s, %s, %s, %s, %s);
         """).format(schema=schema_id),
-        (table_name, main_table, description, origin),
+        (table_name, main_table, description, origin, owner_id),
     )
 
 

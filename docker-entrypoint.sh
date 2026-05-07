@@ -14,7 +14,7 @@ fi
 # This covers existing volumes that pre-date the docker-entrypoint-initdb.d mounts.
 if [ -n "${POSTGRES_HOST:-}" ] && [ -n "${POSTGRES_SECRET:-}" ]; then
     echo "[entrypoint] applying schema migrations..."
-    for sql in /app/backend/migrate_schema.sql /app/backend/pbpk_schema.sql; do
+    for sql in /app/backend/migrate_schema.sql /app/backend/pbpk_schema.sql /app/backend/rbac_schema.sql; do
         if [ -f "$sql" ]; then
             PGPASSWORD="$POSTGRES_SECRET" psql \
                 -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" \
