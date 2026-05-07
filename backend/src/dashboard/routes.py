@@ -22,6 +22,9 @@ from .helpers import (
     pg_insert_data_rows,
     file_chunk_columns,
     file_save_and_read,
+    filter_owned_tables,
+    filter_readable_tables,
+    assert_can_read_table,
 )
 
 from config import Error
@@ -36,6 +39,33 @@ import zipfile
 import pandas as pd
 
 routes = Blueprint("dashboard_routes", __name__)
+
+
+def _manageable_datasets(conn):
+    """Return ``{table_name: dataset_id}`` for datasets the caller can manage
+    grants on. Admins see everything; curators see only their own datasets;
+    everyone else gets an empty mapping.
+    """
+    role = getattr(g, "role", None)
+    user_id = getattr(g, "user", None)
+    if role not in ("admin", "curator") or not user_id:
+        return {}
+    try:
+        with conn.cursor() as cur:
+            if role == "admin":
+                cur.execute(
+                    "SELECT table_name, id FROM _fd.metadata_tables"
+                )
+            else:
+                cur.execute(
+                    "SELECT table_name, id FROM _fd.metadata_tables "
+                    "WHERE owner_id = %s",
+                    (user_id,),
+                )
+            return {row[0]: row[1] for row in cur.fetchall()}
+    except Exception:
+        conn.rollback()
+        return {}
 
 
 @routes.route("/")
@@ -53,7 +83,7 @@ def dashboard():
 
 
 @routes.route("/upload", methods=["GET", "POST"])
-@login_required()
+@login_required("admin", "curator")
 def upload():
     """
     Upload CSV file, process and store chunks in PostgreSQL tables.
@@ -117,7 +147,8 @@ def upload():
                     pg_create_data_table(
                         cur, schema, table, chunk, patient_col)
                     pg_insert_metadata(
-                        cur, schema, table, main_table, description, origin
+                        cur, schema, table, main_table, description, origin,
+                        owner_id=g.user,
                     )
                     pg_insert_data_rows(cur, schema, table,
                                         patient_col, rows, chunk, i)
@@ -139,7 +170,7 @@ def upload():
 
 
 @routes.route("/display", methods=["GET", "POST"])
-@login_required()
+@login_required("admin", "curator", "accessor")
 def display():
     """
     Search and download filtered database tables as zipped CSVs.
@@ -191,7 +222,10 @@ def display():
                     """,
                     (f"%{search_column}%",),
                 )
-                matching_tables = cur.fetchall()
+                matching_tables = [row[0] for row in cur.fetchall()]
+                matching_tables = filter_readable_tables(
+                    cur, matching_tables, g.user, g.role
+                )
         except Error as e:
             conn.rollback()
             raise GenericExceptionHandler(
@@ -201,7 +235,7 @@ def display():
         results = {}
         total_rows = total_columns = 0
 
-        for (table,) in matching_tables:
+        for table in matching_tables:
             try:
                 with conn.cursor() as cur:
                     cur.execute(
@@ -264,7 +298,7 @@ def display():
 
 
 @routes.route("/search", methods=["GET", "POST"])
-@login_required()
+@login_required("admin", "curator", "accessor")
 def search():
     """
     Search and display PostgreSQL table names and matching column results.
@@ -315,10 +349,16 @@ def search():
             )
 
             table_names = [row[0] for row in cur.fetchall()]
+            table_names = filter_readable_tables(
+                cur, table_names, g.user, g.role
+            )
+
+        manageable = _manageable_datasets(conn)
 
         return render_template(
             "/dashboard/search.html",
             table_names=table_names,
+            manageable=manageable,
             user_email=user_email,
             current_path=current_path,
         )
@@ -345,6 +385,9 @@ def search():
                     (f"%{search_term}%",),
                 )
                 search_results = [row[0] for row in cur.fetchall()]
+                search_results = filter_readable_tables(
+                    cur, search_results, g.user, g.role
+                )
 
             with conn.cursor() as cur:
                 cur.execute(
@@ -355,6 +398,9 @@ def search():
                 """
                 )
                 table_names = [row[0] for row in cur.fetchall()]
+                table_names = filter_readable_tables(
+                    cur, table_names, g.user, g.role
+                )
 
         except Error as e:
             conn.rollback()
@@ -362,18 +408,21 @@ def search():
                 f"Failed to fetch rows: {str(e)}", status_code=500
             )
 
+        manageable = _manageable_datasets(conn)
+
         return render_template(
             "/dashboard/search.html",
             search_results=search_results,
             search_term=search_term,
             table_names=table_names,
+            manageable=manageable,
             user_email=user_email,
             current_path=current_path,
         )
 
 
 @routes.route("/update", methods=["GET", "POST"])
-@login_required()
+@login_required("admin", "curator")
 def update():
     """
     Route to render and handle user update requests.
@@ -418,6 +467,7 @@ def update():
                 )
 
             tables = [row[0] for row in cur.fetchall()]
+            tables = filter_owned_tables(cur, tables, g.user, g.role)
 
             if not tables:
                 raise GenericExceptionHandler(
@@ -425,6 +475,7 @@ def update():
 
             try:
                 for table in tables:
+                    assert_can_modify_table(cur, table, g.user, g.role)
                     cur.execute(
                         sql.SQL("UPDATE {}.{} SET {} = %s WHERE rowid = %s").format(
                             sql.Identifier("_fd"),
@@ -451,7 +502,7 @@ def update():
 
 
 @routes.route("/table_preview", methods=["GET", "POST"])
-@login_required()
+@login_required("admin", "curator", "accessor")
 def table_preview():
     """
     Route to preview table data and display metadata statistics.
@@ -488,6 +539,15 @@ def table_preview():
 
     try:
         with conn.cursor() as cur:
+            try:
+                assert_can_read_table(cur, table_name, g.user, g.role)
+            except PermissionError:
+                # Surface as 404 to avoid leaking dataset existence to
+                # users who don't have access.
+                raise GenericExceptionHandler(
+                    message=f"Table '{table_name}' not found in _fd schema.",
+                    status_code=404,
+                )
             cur.execute(
                 """
                 SELECT table_name

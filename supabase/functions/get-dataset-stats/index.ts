@@ -1,6 +1,7 @@
 // Edge Function to get dataset statistics for visualization
 // @ts-ignore
 import * as postgres from 'https://deno.land/x/postgres@v0.17.0/mod.ts'
+import { parseCaller, readableTableNames } from '../_shared/authz.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -13,6 +14,14 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response('ok', { headers: corsHeaders })
   }
 
+  const caller = parseCaller(req)
+  if (!caller.userId && !caller.isService) {
+    return new Response(
+      JSON.stringify({ success: false, error: 'Unauthorized' }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 },
+    )
+  }
+
   try {
     // Connect to PostgreSQL directly
     const databaseUrl = Deno.env.get('SUPABASE_DB_URL')!
@@ -20,6 +29,9 @@ export default async function handler(req: Request): Promise<Response> {
     const connection = await pool.connect()
 
     try {
+      // Authorization scope: which dataset tables may this caller see?
+      const allowed = await readableTableNames(connection, caller)
+
       // Get all tables in _fd schema (excluding metadata table)
       const tablesResult = await connection.queryObject(`
         SELECT table_name
@@ -33,6 +45,7 @@ export default async function handler(req: Request): Promise<Response> {
       // Get simple stats for each table
       for (const row of tablesResult.rows) {
         const tableName = row.table_name as string
+        if (allowed !== null && !allowed.has(tableName)) continue
 
         // Get row count
         const countResult = await connection.queryObject(
@@ -54,12 +67,20 @@ export default async function handler(req: Request): Promise<Response> {
         })
       }
 
-      // Get metadata information
-      const metadataResult = await connection.queryObject(`
-        SELECT table_name, main_table, description, origin, created_at
-        FROM _fd.metadata_tables
-        ORDER BY created_at DESC;
-      `)
+      // Get metadata information (filtered to authorized datasets)
+      const metadataResult = allowed === null
+        ? await connection.queryObject(`
+            SELECT table_name, main_table, description, origin, created_at
+            FROM _fd.metadata_tables
+            ORDER BY created_at DESC;
+          `)
+        : await connection.queryObject(
+            `SELECT table_name, main_table, description, origin, created_at
+               FROM _fd.metadata_tables
+              WHERE table_name = ANY($1::text[])
+              ORDER BY created_at DESC`,
+            [Array.from(allowed)],
+          )
 
       // Calculate summary statistics
       const summary = {

@@ -1,0 +1,85 @@
+{% extends "dashboard/layout.html" %}
+{% block title %}FAIRMicrobiome | Dataset access{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+   {% with messages = get_flashed_messages(with_categories=true) %}
+   {% if messages %}
+      <div class="container mt-3">
+         {% for category, message in messages %}
+         <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+         </div>
+         {% endfor %}
+      </div>
+   {% endif %}
+   {% endwith %}
+
+   {% if not allowed %}
+   <div class="container mt-3">
+      <div class="alert alert-danger">
+         You do not have permission to manage access for this dataset.
+      </div>
+   </div>
+   {% else %}
+   <h1>Manage access
+      {% if dataset %}
+      <small class="text-muted">{{ dataset.main_table }} ({{ dataset.table_name }})</small>
+      {% endif %}
+   </h1>
+   <div style="height:2vh;"></div>
+   <div class="container">
+      <div class="card mb-3">
+         <div class="card-body">
+            <h5 class="card-title">Grant access</h5>
+            <form method="post"
+                  action="{{ url_for('admin_routes.grant_user', dataset_id=dataset.id) }}"
+                  class="d-flex gap-2 align-items-center">
+               <select class="form-select" name="user_id" required>
+                  <option value="" disabled selected>Select user…</option>
+                  {% for u in candidate_users %}
+                  <option value="{{ u.id }}">{{ u.email }}</option>
+                  {% endfor %}
+               </select>
+               <button type="submit" class="btn btn-primary-custom">Grant</button>
+            </form>
+         </div>
+      </div>
+
+      <div class="card">
+         <div class="card-body">
+            <h5 class="card-title">Current grants</h5>
+            <table class="table table-hover align-middle mb-0">
+               <thead>
+                  <tr>
+                     <th>User</th>
+                     <th>Granted by</th>
+                     <th>When</th>
+                     <th style="width: 1%;"></th>
+                  </tr>
+               </thead>
+               <tbody>
+                  {% for grant in grants %}
+                  <tr>
+                     <td>{{ grant.email }}</td>
+                     <td>{{ grant.granted_by_email }}</td>
+                     <td>{{ grant.granted_at }}</td>
+                     <td>
+                        <form method="post"
+                              action="{{ url_for('admin_routes.revoke_user', dataset_id=dataset.id, user_id=grant.user_id) }}"
+                              class="mb-0">
+                           <button type="submit" class="btn btn-sm btn-outline-danger">Revoke</button>
+                        </form>
+                     </td>
+                  </tr>
+                  {% else %}
+                  <tr><td colspan="4" class="text-muted text-center">No users have been granted access yet.</td></tr>
+                  {% endfor %}
+               </tbody>
+            </table>
+         </div>
+      </div>
+   </div>
+   {% endif %}
+</div>
+{% endblock %}

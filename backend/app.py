@@ -3,8 +3,10 @@ starts the server."""
 
 import os
 
+import psycopg2
 from flask import Flask, json, g, url_for, redirect, flash
 from flask_cors import CORS
+from supabase import create_client
 
 from config import Config, supabase_extension, limiter, get_db, teardown_db
 from src.exceptions import GenericExceptionHandler
@@ -16,8 +18,76 @@ from src.main.routes import routes as main_routes
 from src.visualization.routes import routes as visualization_routes
 from src.federated.routes import routes as federated_routes
 from src.model.routes import routes as model_routes
+from src.admin.routes import routes as admin_routes
 
 from config import load_settings
+
+
+def _bootstrap_admin(app):
+    """Promote the user identified by ADMIN_EMAIL to the 'admin' role.
+
+    Idempotent and best-effort: silently no-op if the env var is missing, the
+    Supabase service role key is unavailable, or the user has not yet
+    registered. Re-runs on every boot so that newly registering admins are
+    promoted as soon as their account exists.
+    """
+    admin_email = (os.getenv("ADMIN_EMAIL") or "").strip().lower()
+    if not admin_email:
+        return
+
+    url = app.config.get("SUPABASE_URL")
+    service_key = app.config.get("SUPABASE_SERVICE_ROLE_KEY")
+    if not url or not service_key:
+        return
+
+    try:
+        from src.admin.form import list_supabase_users
+
+        client = create_client(url, service_key)
+        users = list_supabase_users(client=client)
+        user_id = next(
+            (uid for uid, email in users if email.lower() == admin_email),
+            None,
+        )
+        if not user_id:
+            app.logger.info(
+                "ADMIN_EMAIL=%s not yet registered; skipping admin promotion",
+                admin_email,
+            )
+            return
+
+        conn = psycopg2.connect(
+            host=app.config["POSTGRES_HOST"],
+            port=app.config["POSTGRES_PORT"],
+            user=app.config["POSTGRES_USER"],
+            password=app.config["POSTGRES_SECRET"],
+            database=app.config["POSTGRES_DB_NAME"],
+        )
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO _fd.user_roles (user_id, role, assigned_by) "
+                    "VALUES (%s, 'admin', %s) "
+                    "ON CONFLICT (user_id) DO UPDATE "
+                    "SET role = EXCLUDED.role, assigned_at = now() "
+                    "WHERE _fd.user_roles.role <> 'admin'",
+                    (user_id, user_id),
+                )
+                cur.execute(
+                    "INSERT INTO _fd.role_audit "
+                    "(user_id, old_role, new_role, changed_by) "
+                    "SELECT %s, NULL, 'admin', %s "
+                    "WHERE NOT EXISTS (SELECT 1 FROM _fd.role_audit "
+                    "                  WHERE user_id = %s AND new_role = 'admin')",
+                    (user_id, user_id, user_id),
+                )
+            conn.commit()
+            app.logger.info("Promoted %s to admin", admin_email)
+        finally:
+            conn.close()
+    except Exception as exc:
+        app.logger.warning("Admin bootstrap failed: %s", exc)
+
 
 def create_app(db_name=None):
     """Construct the core application of Flask. Holds an
@@ -40,6 +110,7 @@ def create_app(db_name=None):
     app.register_blueprint(visualization_routes, url_prefix="/visualization")
     app.register_blueprint(federated_routes, url_prefix="/federated")
     app.register_blueprint(model_routes, url_prefix="/model")
+    app.register_blueprint(admin_routes, url_prefix="/admin")
 
     if app.config["ENV"] == "development":
         CORS(app, origins="http://localhost:5000", supports_credentials=True)
@@ -49,12 +120,25 @@ def create_app(db_name=None):
 
     supabase_extension.init_app(app)
 
+    if app.config.get("ENV") != "testing":
+        _bootstrap_admin(app)
+
     app.teardown_appcontext(teardown_db)
 
     @app.before_request
     def before_request():
         """Establish the database connection for the current request."""
         g.db = get_db()
+
+    @app.context_processor
+    def inject_role():
+        role = getattr(g, "role", None)
+        return {
+            "current_role": role,
+            "is_admin": role == "admin",
+            "is_curator": role == "curator",
+            "can_upload": role in ("admin", "curator"),
+        }
 
     @app.errorhandler(GenericExceptionHandler)
     def handle_generic_exception(e):

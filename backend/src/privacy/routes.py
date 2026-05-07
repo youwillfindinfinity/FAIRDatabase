@@ -17,7 +17,7 @@ routes = Blueprint("privacy_routes", __name__)
 
 
 @routes.route("/privacy_processing")
-@login_required()
+@login_required("admin", "curator", "accessor")
 def privacy_processing():
     """
     Run privacy enforcement analysis on uploaded data.
@@ -39,7 +39,7 @@ def privacy_processing():
 
 
 @routes.route("/differential_privacy", methods=["GET", "POST"])
-@login_required()
+@login_required("admin", "curator")
 def differential_privacy():
     """
     Add differential privacy noise to selected data columns.
