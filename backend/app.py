@@ -89,6 +89,45 @@ def _bootstrap_admin(app):
         app.logger.warning("Admin bootstrap failed: %s", exc)
 
 
+def _bootstrap_pbpk_bucket(app):
+    """Ensure the ``pbpk-artifacts`` Supabase Storage bucket exists.
+
+    Runs once at app-factory time (not per-request). Idempotent: a 409 /
+    "already exists" response from Supabase is treated as success. Any other
+    failure is logged and swallowed so a transient Supabase outage does not
+    crash the Flask boot — the artifact upload route will surface a clearer
+    502 to the caller if the bucket is genuinely missing later.
+
+    Storage RLS policies (``storage.objects``) are NOT applied here — see
+    ``backend/pbpk_storage_policies.sql`` for the one-shot psql apply.
+    """
+    bucket_id = "pbpk-artifacts"
+    file_size_limit = 200 * 1024 * 1024  # keep in sync with routes.ARTIFACT_MAX_BYTES
+
+    url = app.config.get("SUPABASE_URL")
+    service_key = app.config.get("SUPABASE_SERVICE_ROLE_KEY")
+    if not url or not service_key:
+        app.logger.info("Supabase not configured; skipping PBPK bucket bootstrap")
+        return
+
+    try:
+        client = create_client(url, service_key)
+        try:
+            client.storage.create_bucket(
+                bucket_id,
+                options={"public": False, "file_size_limit": file_size_limit},
+            )
+            app.logger.info("Created Supabase Storage bucket %r", bucket_id)
+        except Exception as exc:
+            msg = str(exc).lower()
+            if "already exists" in msg or "duplicate" in msg or "409" in msg:
+                app.logger.info("Supabase bucket %r already exists; skipping", bucket_id)
+                return
+            raise
+    except Exception as exc:
+        app.logger.warning("PBPK bucket bootstrap failed: %s", exc)
+
+
 def create_app(db_name=None):
     """Construct the core application of Flask. Holds an
     optional argument to override the databse URI, this is used
@@ -122,6 +161,7 @@ def create_app(db_name=None):
 
     if app.config.get("ENV") != "testing":
         _bootstrap_admin(app)
+        _bootstrap_pbpk_bucket(app)
 
     app.teardown_appcontext(teardown_db)
 

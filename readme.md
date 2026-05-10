@@ -241,10 +241,30 @@ Application-level schemas are applied **automatically** on fresh DB init and on 
 - `backend/rbac_schema.sql` — Role-based access control: user roles, dataset grants, RLS policies, audit tables
 
 **How it works:**
-- On a fresh `db` volume, all three files are mounted into `/docker-entrypoint-initdb.d/migrations/` and run by Postgres at first init (in order: 100-fd-schema, 101-fd-pbpk, 102-fd-rbac).
-- On every `flask-app` container start, the entrypoint re-applies all three via `psql` (see `docker-entrypoint.sh` line 17). All files are idempotent (`IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `CREATE POLICY IF NOT EXISTS`), so re-runs are safe.
+- On a fresh `db` volume, all three files are mounted into `/docker-entrypoint-initdb.d/migrations/` and run by Postgres at first init (in order: `100-fd-schema`, `101-fd-rbac`, `102-fd-pbpk`). Order matters: `rbac_schema.sql` defines `_fd.current_role()`, which `pbpk_schema.sql`'s RLS policies depend on.
+- On every `flask-app` container start, the entrypoint re-applies all three via `psql` in the same order (see `docker-entrypoint.sh`). All files are idempotent (`IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `CREATE POLICY IF NOT EXISTS`), so re-runs are safe.
 
 **Custom schemas:** To add a new schema file, drop it under `backend/`, mount it in `docker-compose.yml` next to the existing three (with a new sequence number like `103-`), and add it to the `for sql in ...` loop in `docker-entrypoint.sh`.
+
+### PBPK simulation artifacts
+
+The `/model/runs/<run_id>/artifacts` endpoints accept binary outputs (jpg, png, mp4, vtk/vtu/vtp) attached to a persisted simulation run. Bytes live in the Supabase Storage bucket `pbpk-artifacts`; catalog rows in `_fd.pbpk_run_artifacts` carry the RBAC.
+
+- **Bucket** — created automatically on Flask boot (`_bootstrap_pbpk_bucket` in `app.py`). Idempotent; "already exists" is a no-op.
+- **Storage RLS** — apply once, by hand, when you want browsers to read objects directly via signed URLs without going through Flask:
+  ```bash
+  PGPASSWORD=$POSTGRES_SECRET psql \
+      -h $POSTGRES_HOST -p $POSTGRES_PORT \
+      -U $POSTGRES_USER -d $POSTGRES_DB_NAME \
+      -f backend/pbpk_storage_policies.sql
+  ```
+  Until applied, the bucket is reachable only via the service-role client (the Flask backend), which is fine for the PoC — every browser read flows through `/model/runs/<id>/artifacts` and the backend issues short-lived signed URLs.
+- **Limits** — 200 MB per file; signed URL TTL 10 minutes. Allowed types: `image/jpeg`, `image/png`, `video/mp4`, and the `.vtk` / `.vtu` / `.vtp` mesh family (sent as `application/octet-stream`).
+- **Upload example**
+  ```bash
+  curl -b cookies.txt -F "file=@conc_field.png" \
+       http://localhost:5000/model/runs/42/artifacts
+  ```
 
 ### Troubleshooting
 
