@@ -112,6 +112,54 @@
       Download timeseries (CSV)
     </button>
   </div>
+
+  <!-- ── Run artifacts ──────────────────────────────────────────────────── -->
+  {% if can_view_artifacts %}
+  <div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span>Run artifacts</span>
+      <small class="text-muted">jpg / png / mp4 / vtk &nbsp;·&nbsp; ≤ 200 MB</small>
+    </div>
+    <div class="card-body">
+      <div class="row g-2 align-items-end mb-3">
+        <div class="col-md-3">
+          <label for="artifact-run-id" class="form-label">Run ID</label>
+          <input type="number" id="artifact-run-id" class="form-control"
+                 min="1" placeholder="e.g. 42">
+        </div>
+        <div class="col-md-2">
+          <button id="artifact-load-btn" class="btn btn-outline-secondary w-100">
+            Load
+          </button>
+        </div>
+      </div>
+
+      {% if can_upload %}
+      <form id="artifact-upload-form" class="row g-2 align-items-end mb-3 d-none">
+        <div class="col-md-6">
+          <label for="artifact-file" class="form-label">Upload artifact</label>
+          <input type="file" id="artifact-file" class="form-control"
+                 accept=".jpg,.jpeg,.png,.mp4,.vtk,.vtu,.vtp">
+        </div>
+        <div class="col-md-2">
+          <button type="submit" id="artifact-upload-btn" class="btn btn-primary w-100">
+            Upload
+          </button>
+        </div>
+        <div class="col-12">
+          <div class="progress d-none" id="artifact-progress-wrap" style="height: 6px;">
+            <div id="artifact-progress" class="progress-bar"
+                 role="progressbar" style="width: 0%"></div>
+          </div>
+        </div>
+      </form>
+      {% endif %}
+
+      <div id="artifact-error" class="alert alert-danger d-none"></div>
+      <div id="artifact-list" class="row g-3"></div>
+    </div>
+  </div>
+  {% endif %}
 </div>
 
 <!-- Chart.js (loaded from CDN; swap for a self-hosted copy if needed) -->
@@ -204,6 +252,161 @@
           y: { title: { display: true, text: "Venous conc. (mg/L)" } },
         },
       },
+    });
+  }
+
+  // ── Artifacts ─────────────────────────────────────────────────────────────
+  const ART_MAX_BYTES = 200 * 1024 * 1024;
+  const CURRENT_USER_ID = {{ (current_user_id or "") | tojson }};
+  const IS_ADMIN = {{ "true" if is_admin else "false" }};
+  const CAN_UPLOAD = {{ "true" if can_upload else "false" }};
+  let _currentRunId = null;
+
+  function artifactErr(msg) {
+    const box = document.getElementById("artifact-error");
+    if (msg) { box.textContent = msg; box.classList.remove("d-none"); }
+    else { box.classList.add("d-none"); }
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
+  }
+
+  function canDelete(artifact) {
+    return IS_ADMIN || (CURRENT_USER_ID && artifact.owner_id === CURRENT_USER_ID);
+  }
+
+  function renderArtifactCard(a) {
+    let preview = "";
+    if (a.kind === "image" && a.url) {
+      preview = `<img src="${a.url}" class="img-fluid rounded" alt="${escapeHtml(a.original_name)}">`;
+    } else if (a.kind === "video" && a.url) {
+      preview = `<video controls class="w-100 rounded"><source src="${a.url}" type="${escapeHtml(a.mime)}"></video>`;
+    } else {
+      preview = `<div class="text-muted small">Mesh / binary — preview not available</div>`;
+    }
+    const dlBtn = a.url
+      ? `<a class="btn btn-sm btn-outline-secondary" href="${a.url}" download="${escapeHtml(a.original_name)}">Download</a>`
+      : "";
+    const delBtn = canDelete(a)
+      ? `<button class="btn btn-sm btn-outline-danger artifact-delete-btn" data-id="${a.id}">Delete</button>`
+      : "";
+    const sizeKb = (a.size_bytes / 1024).toFixed(0);
+    return `
+      <div class="col-md-6">
+        <div class="card h-100">
+          <div class="card-body">
+            <div class="mb-2">${preview}</div>
+            <div class="small text-muted mb-2">
+              ${escapeHtml(a.original_name)} · ${escapeHtml(a.kind)} · ${sizeKb} KB
+            </div>
+            <div class="d-flex gap-2">${dlBtn}${delBtn}</div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  async function loadArtifacts(runId) {
+    artifactErr(null);
+    const list = document.getElementById("artifact-list");
+    list.innerHTML = "";
+    try {
+      const resp = await fetch(`/model/runs/${runId}/artifacts`);
+      if (resp.status === 404) throw new Error("Run not found");
+      if (resp.status === 403) throw new Error("Forbidden");
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const rows = await resp.json();
+      if (!rows.length) {
+        list.innerHTML = `<div class="col-12 text-muted small">No artifacts yet.</div>`;
+        return;
+      }
+      list.innerHTML = rows.map(renderArtifactCard).join("");
+      list.querySelectorAll(".artifact-delete-btn").forEach(btn => {
+        btn.addEventListener("click", () => deleteArtifact(btn.dataset.id, runId));
+      });
+    } catch (err) {
+      artifactErr("Could not load artifacts: " + err.message);
+    }
+  }
+
+  async function deleteArtifact(artifactId, runId) {
+    if (!confirm("Delete this artifact?")) return;
+    artifactErr(null);
+    try {
+      const resp = await fetch(`/model/artifacts/${artifactId}`, { method: "DELETE" });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${resp.status}`);
+      }
+      loadArtifacts(runId);
+    } catch (err) {
+      artifactErr("Delete failed: " + err.message);
+    }
+  }
+
+  const loadBtn = document.getElementById("artifact-load-btn");
+  if (loadBtn) loadBtn.addEventListener("click", () => {
+    const v = parseInt(document.getElementById("artifact-run-id").value, 10);
+    if (!Number.isFinite(v) || v <= 0) {
+      artifactErr("Enter a valid run ID.");
+      return;
+    }
+    _currentRunId = v;
+    const form = document.getElementById("artifact-upload-form");
+    if (form) form.classList.remove("d-none");
+    loadArtifacts(v);
+  });
+
+  const uploadForm = document.getElementById("artifact-upload-form");
+  if (uploadForm) {
+    uploadForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      if (!_currentRunId) { artifactErr("Load a run first."); return; }
+      const fileInput = document.getElementById("artifact-file");
+      const file = fileInput.files[0];
+      if (!file) { artifactErr("Choose a file."); return; }
+      if (file.size > ART_MAX_BYTES) {
+        artifactErr(`File exceeds 200 MB limit (${(file.size / 1048576).toFixed(1)} MB).`);
+        return;
+      }
+      artifactErr(null);
+
+      const fd = new FormData();
+      fd.append("file", file);
+      const xhr = new XMLHttpRequest();
+      const wrap = document.getElementById("artifact-progress-wrap");
+      const bar = document.getElementById("artifact-progress");
+      const btn = document.getElementById("artifact-upload-btn");
+
+      xhr.upload.addEventListener("progress", (ev) => {
+        if (!ev.lengthComputable) return;
+        const pct = (ev.loaded / ev.total) * 100;
+        bar.style.width = pct.toFixed(0) + "%";
+      });
+      xhr.addEventListener("loadstart", () => {
+        btn.disabled = true;
+        wrap.classList.remove("d-none");
+        bar.style.width = "0%";
+      });
+      xhr.addEventListener("loadend", () => {
+        btn.disabled = false;
+        setTimeout(() => wrap.classList.add("d-none"), 500);
+        fileInput.value = "";
+      });
+      xhr.addEventListener("load", () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          loadArtifacts(_currentRunId);
+        } else {
+          let msg = `HTTP ${xhr.status}`;
+          try { msg = JSON.parse(xhr.responseText).error || msg; } catch (_) {}
+          artifactErr("Upload failed: " + msg);
+        }
+      });
+      xhr.addEventListener("error", () => artifactErr("Upload failed (network error)."));
+      xhr.open("POST", `/model/runs/${_currentRunId}/artifacts`);
+      xhr.send(fd);
     });
   }
 

@@ -262,7 +262,7 @@ services:
       POSTGREST_URL: http://rest:3000
       PGRST_JWT_SECRET: ${JWT_SECRET}
       DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
-      FILE_SIZE_LIMIT: 52428800
+      FILE_SIZE_LIMIT: 209715200  # 200 MB — must be ≥ ARTIFACT_MAX_BYTES in src/model/routes.py
       STORAGE_BACKEND: file
       FILE_STORAGE_BACKEND_PATH: /var/lib/storage
       TENANT_ID: stub
@@ -410,8 +410,10 @@ services:
       # The flask-app entrypoint also re-applies these idempotently on every
       # boot, so existing DB volumes are covered without requiring a reset.
       - ./migrate_schema.sql:/docker-entrypoint-initdb.d/migrations/100-fd-schema.sql:Z
-      - ./pbpk_schema.sql:/docker-entrypoint-initdb.d/migrations/101-fd-pbpk.sql:Z
-      - ./rbac_schema.sql:/docker-entrypoint-initdb.d/migrations/102-fd-rbac.sql:Z
+      # Order matters: rbac_schema.sql defines _fd.current_role(), which
+      # pbpk_schema.sql's RLS policies depend on. Apply rbac first.
+      - ./rbac_schema.sql:/docker-entrypoint-initdb.d/migrations/101-fd-rbac.sql:Z
+      - ./pbpk_schema.sql:/docker-entrypoint-initdb.d/migrations/102-fd-pbpk.sql:Z
     ports:
     - "5433:5432"
     healthcheck:
