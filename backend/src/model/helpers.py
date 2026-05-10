@@ -42,17 +42,23 @@ def available_scenarios() -> list[dict]:
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
-def store_parameter_set(name: str, description: str, params: dict, created_by: str) -> int:
+def store_parameter_set(
+    name: str,
+    description: str,
+    params: dict,
+    created_by: str,
+    owner_id: str | None = None,
+) -> int:
     """Insert a named parameter set and return its id."""
     cur = g.db.cursor()
     try:
         cur.execute(
             """
-            INSERT INTO _fd.pbpk_parameter_sets (name, description, params, created_by)
-            VALUES (%s, %s, %s::jsonb, %s)
+            INSERT INTO _fd.pbpk_parameter_sets (name, description, params, created_by, owner_id)
+            VALUES (%s, %s, %s::jsonb, %s, %s)
             RETURNING id
             """,
-            (name, description, json.dumps(params), created_by),
+            (name, description, json.dumps(params), created_by, owner_id),
         )
         row = cur.fetchone()
         g.db.commit()
@@ -108,17 +114,23 @@ def list_parameter_sets(limit: int = 200) -> list[dict]:
     return result
 
 
-def create_run(param_set_id: int, scenario: str, created_by: str) -> int:
+def create_run(
+    param_set_id: int,
+    scenario: str,
+    created_by: str,
+    owner_id: str | None = None,
+) -> int:
     """Insert a new simulation run with status='pending' and return its id."""
     cur = g.db.cursor()
     try:
         cur.execute(
             """
-            INSERT INTO _fd.pbpk_simulation_runs (param_set_id, scenario, status, created_by)
-            VALUES (%s, %s, 'pending', %s)
+            INSERT INTO _fd.pbpk_simulation_runs
+                (param_set_id, scenario, status, created_by, owner_id)
+            VALUES (%s, %s, 'pending', %s, %s)
             RETURNING id
             """,
-            (param_set_id, scenario, created_by),
+            (param_set_id, scenario, created_by, owner_id),
         )
         row = cur.fetchone()
         g.db.commit()
@@ -199,3 +211,139 @@ def fetch_run(run_id: int) -> dict | None:
         if result.get(field) is not None:
             result[field] = result[field].isoformat()
     return result
+
+
+# ── RBAC: handler-level checks (load-bearing on the Flask path) ───────────────
+#
+# RLS on _fd.pbpk_* exists in pbpk_schema.sql but does NOT fire here because
+# the Flask connection runs as a Postgres superuser. These helpers enforce
+# ownership the same way dashboard.helpers.assert_can_*_table does for CSVs.
+
+def _fetch_run_owner(cur, run_id: int) -> str | None:
+    cur.execute(
+        "SELECT owner_id FROM _fd.pbpk_simulation_runs WHERE id = %s",
+        (run_id,),
+    )
+    row = cur.fetchone()
+    return None if row is None else row[0]
+
+
+def assert_can_read_run(cur, run_id: int, user_id: str, role: str) -> None:
+    """Raise PermissionError unless the caller may read this run + its artifacts."""
+    if role == "admin":
+        if _fetch_run_owner(cur, run_id) is None:
+            raise FileNotFoundError("run not found")
+        return
+    if not user_id or role not in ("curator", "accessor"):
+        raise PermissionError("forbidden")
+    owner = _fetch_run_owner(cur, run_id)
+    if owner is None:
+        raise FileNotFoundError("run not found")
+    if str(owner) != str(user_id):
+        raise PermissionError("forbidden")
+
+
+def assert_can_modify_run(cur, run_id: int, user_id: str, role: str) -> None:
+    """Raise PermissionError unless the caller may attach/delete artifacts."""
+    if role == "admin":
+        if _fetch_run_owner(cur, run_id) is None:
+            raise FileNotFoundError("run not found")
+        return
+    if role != "curator" or not user_id:
+        raise PermissionError("forbidden")
+    owner = _fetch_run_owner(cur, run_id)
+    if owner is None:
+        raise FileNotFoundError("run not found")
+    if str(owner) != str(user_id):
+        raise PermissionError("forbidden")
+
+
+# ── Artifact catalog helpers ──────────────────────────────────────────────────
+
+def insert_artifact(
+    run_id: int,
+    owner_id: str,
+    kind: str,
+    storage_path: str,
+    mime: str,
+    size_bytes: int,
+    original_name: str,
+) -> int:
+    cur = g.db.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO _fd.pbpk_run_artifacts
+                (run_id, owner_id, kind, storage_path, mime, size_bytes, original_name)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (run_id, owner_id, kind, storage_path, mime, size_bytes, original_name),
+        )
+        new_id = cur.fetchone()[0]
+        g.db.commit()
+    except Exception:
+        g.db.rollback()
+        raise
+    finally:
+        cur.close()
+    return new_id
+
+
+def list_artifacts(run_id: int) -> list[dict]:
+    cur = g.db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        """
+        SELECT id, run_id, owner_id, kind, storage_path, mime, size_bytes,
+               original_name, created_at
+        FROM _fd.pbpk_run_artifacts
+        WHERE run_id = %s
+        ORDER BY created_at DESC
+        """,
+        (run_id,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    out = []
+    for row in rows:
+        r = dict(row)
+        r["owner_id"] = str(r["owner_id"]) if r["owner_id"] is not None else None
+        r["created_at"] = r["created_at"].isoformat()
+        out.append(r)
+    return out
+
+
+def fetch_artifact(artifact_id: int) -> dict | None:
+    cur = g.db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        """
+        SELECT id, run_id, owner_id, kind, storage_path, mime, size_bytes,
+               original_name, created_at
+        FROM _fd.pbpk_run_artifacts
+        WHERE id = %s
+        """,
+        (artifact_id,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    if row is None:
+        return None
+    r = dict(row)
+    r["owner_id"] = str(r["owner_id"]) if r["owner_id"] is not None else None
+    r["created_at"] = r["created_at"].isoformat()
+    return r
+
+
+def delete_artifact_row(artifact_id: int) -> None:
+    cur = g.db.cursor()
+    try:
+        cur.execute(
+            "DELETE FROM _fd.pbpk_run_artifacts WHERE id = %s",
+            (artifact_id,),
+        )
+        g.db.commit()
+    except Exception:
+        g.db.rollback()
+        raise
+    finally:
+        cur.close()
