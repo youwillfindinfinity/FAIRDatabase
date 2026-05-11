@@ -156,6 +156,16 @@ def create_app(db_name=None):
     if app.config["ENV"] == "development":
         CORS(app, origins="http://localhost:5000", supports_credentials=True)
 
+    # Add CORS for demo API - allow only portal origin
+    portal_origin = app.config.get("PORTAL_ORIGIN", "http://localhost:3000")
+    CORS(app, resources={
+        r"/api/demo/*": {
+            "origins": portal_origin,
+            "methods": ["GET"],
+            "allow_headers": ["Content-Type", "Authorization"]
+        }
+    })
+
     if app.config["ENV"] != "testing":
         limiter.init_app(app)
 
