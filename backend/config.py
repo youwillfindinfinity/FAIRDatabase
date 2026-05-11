@@ -83,6 +83,8 @@ class Config:
     POSTGRES_DB_NAME = os.getenv("POSTGRES_DB_NAME")
     # Demo API rate limiting
     DEMO_RATE_LIMIT = os.getenv("DEMO_RATE_LIMIT", "100 per hour")
+    # Portal origin for CORS
+    PORTAL_ORIGIN = os.getenv("PORTAL_ORIGIN", "http://localhost:3000")
 
 
 class Supabase:
