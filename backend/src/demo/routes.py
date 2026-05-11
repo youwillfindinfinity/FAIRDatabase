@@ -1,12 +1,17 @@
-"""Demo API routes."""
+"""Demo API routes with rate limiting."""
 
 from flask import Blueprint, jsonify, request
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from src.demo.helpers import get_demo_datasets, get_demo_query_results
+from config import limiter
 
 routes = Blueprint("demo", __name__, url_prefix="/api/demo")
 
 
+# Apply rate limiting to specific endpoints
 @routes.route("/datasets", methods=["GET"])
+@limiter.limit("100 per hour")
 def list_datasets():
     """Return list of demo datasets."""
     try:
@@ -17,6 +22,7 @@ def list_datasets():
 
 
 @routes.route("/query", methods=["GET"])
+@limiter.limit("100 per hour")
 def query_data():
     """Execute demo query with parameters."""
     dataset = request.args.get("dataset", "gut_microbiome")
