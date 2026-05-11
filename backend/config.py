@@ -81,6 +81,8 @@ class Config:
     POSTGRES_USER = os.getenv("POSTGRES_USER")
     POSTGRES_SECRET = os.getenv("POSTGRES_SECRET")
     POSTGRES_DB_NAME = os.getenv("POSTGRES_DB_NAME")
+    # Demo API rate limiting
+    DEMO_RATE_LIMIT = os.getenv("DEMO_RATE_LIMIT", "100 per hour")
 
 
 class Supabase:
