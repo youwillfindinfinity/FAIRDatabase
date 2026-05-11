@@ -19,6 +19,7 @@ from src.visualization.routes import routes as visualization_routes
 from src.federated.routes import routes as federated_routes
 from src.model.routes import routes as model_routes
 from src.admin.routes import routes as admin_routes
+from src.demo.routes import routes as demo_routes
 
 from config import load_settings
 
@@ -150,6 +151,7 @@ def create_app(db_name=None):
     app.register_blueprint(federated_routes, url_prefix="/federated")
     app.register_blueprint(model_routes, url_prefix="/model")
     app.register_blueprint(admin_routes, url_prefix="/admin")
+    app.register_blueprint(demo_routes, url_prefix="/api/demo")
 
     if app.config["ENV"] == "development":
         CORS(app, origins="http://localhost:5000", supports_credentials=True)
