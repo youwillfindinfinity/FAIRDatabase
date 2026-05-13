@@ -1,0 +1,66 @@
+{% extends "dashboard/layout.html" %}
+{% block title %}FAIRDatabase | FL Admin{% endblock %}
+{% block content %}
+<div class="row">
+  <div class="col-12 mb-4">
+    <h2 class="display-6">Federated Learning Console</h2>
+  </div>
+
+  <!-- Active Tasks -->
+  <div class="col-12 mb-4">
+    <div class="card">
+      <div class="card-header"><strong>FL Tasks</strong></div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead><tr>
+            <th>ID</th><th>Status</th><th>Algorithm</th>
+            <th>Rounds</th><th>ε Budget</th><th>Mode</th><th>Created</th>
+          </tr></thead>
+          <tbody>
+          {% for t in tasks %}
+          <tr>
+            <td><code>{{ t.id[:8] }}</code></td>
+            <td><span class="badge bg-{% if t.status == 'completed' %}success{% elif t.status == 'running' %}primary{% else %}secondary{% endif %}">{{ t.status }}</span></td>
+            <td>{{ t.algorithm }}</td>
+            <td>{{ t.rounds_done }} / {{ t.rounds_total }}</td>
+            <td>ε={{ t.dp_epsilon }}</td>
+            <td>{% if t.simulation %}Simulation{% else %}Real FL{% endif %}</td>
+            <td>{{ t.created_at.strftime('%Y-%m-%d %H:%M') if t.created_at else '' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="text-center text-muted">No FL tasks yet.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Epsilon Budgets -->
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header"><strong>Dataset ε Budgets</strong></div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead><tr>
+            <th>Dataset</th><th>Total ε</th><th>Spent ε</th><th>Remaining</th><th>Last Updated</th>
+          </tr></thead>
+          <tbody>
+          {% for b in budgets %}
+          <tr class="{% if b.remaining <= 0 %}table-danger{% elif b.remaining < b.total_budget * 0.2 %}table-warning{% endif %}">
+            <td>{{ b.table_name or b.dataset_id[:8] }}</td>
+            <td>{{ '%.3f'|format(b.total_budget) }}</td>
+            <td>{{ '%.3f'|format(b.spent) }}</td>
+            <td>{{ '%.3f'|format(b.remaining) }}</td>
+            <td>{{ b.last_updated.strftime('%Y-%m-%d') if b.last_updated else '' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="text-center text-muted">No datasets enrolled in FL.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
