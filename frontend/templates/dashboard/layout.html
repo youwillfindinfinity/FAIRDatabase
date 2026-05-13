@@ -133,7 +133,8 @@
       <!-- Footer -->
       <footer class="footer custom-footer mt-auto">
          <div class="container text-center">
-            <small><b>FAIRDatabase @ 2024</b></small>
+            <small><b>FAIRDatabase &copy; <span id="footer-year"></span></b></small>
+            <script>document.getElementById('footer-year').textContent = new Date().getFullYear();</script>
          </div>
       </footer>
       {% block scripts %}
