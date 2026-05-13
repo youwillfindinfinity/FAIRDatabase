@@ -154,9 +154,9 @@
                      <div class="row">
                         <div class="col">
                            <div class="form-group">
-                              <div data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-title="Select rows to display"class="d-flex align-items-center">
-                                 <label for="rowLimit" class="me-3">Rows to display:</label>
-                                 <select id="rowLimit" class="form-select" style="width: auto;">
+                              <div data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-title="Select rows to display" class="d-flex align-items-center">
+                                 <label for="rowLimitResults" class="me-3">Rows to display:</label>
+                                 <select id="rowLimitResults" class="form-select" style="width: auto;">
                                     <option value="10">10</option>
                                     <option value="20">20</option>
                                     <option value="50">50</option>
@@ -168,7 +168,7 @@
                         <div class="col"></div>
                         <div class="col">
                            {% if search_results|length > 10 %}
-                           <button id="toggleRows" class="btn btn-primary-custom">Load More</button>
+                           <button id="toggleRowsResults" class="btn btn-primary-custom">Load More</button>
                            {% endif %}
                         </div>
                      </div>

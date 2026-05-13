@@ -118,6 +118,51 @@ document.addEventListener('DOMContentLoaded', function () {
     updateVisibleRows(currentLimit);
 });
 
+// Load more for search results table (uses distinct IDs to avoid conflict with dataset list)
+document.addEventListener('DOMContentLoaded', function () {
+    const rowLimitSelect = document.getElementById('rowLimitResults');
+    const tableBody = document.getElementById('tableBody');
+    const toggleRowsButton = document.getElementById('toggleRowsResults');
+
+    if (!rowLimitSelect || !tableBody || !toggleRowsButton) return;
+
+    let currentLimit = parseInt(rowLimitSelect.value);
+
+    function updateVisibleRows(limit) {
+        const rows = tableBody.querySelectorAll('tr');
+        rows.forEach((row, index) => {
+            row.classList.toggle('hidden-row', index >= limit);
+        });
+        currentLimit = limit;
+        toggleRowsButton.textContent = limit >= rows.length ? 'Collapse' : 'Load More';
+    }
+
+    rowLimitSelect.addEventListener('change', function () {
+        updateVisibleRows(parseInt(this.value));
+    });
+
+    toggleRowsButton.addEventListener('click', function (event) {
+        event.preventDefault();
+        const rows = tableBody.querySelectorAll('tr.hidden-row');
+        if (rows.length > 0) {
+            updateVisibleRows(currentLimit + 10);
+        } else {
+            updateVisibleRows(10);
+        }
+    });
+
+    toggleRowsButton.addEventListener('mouseenter', function () {
+        this.style.backgroundColor = '#70999C';
+        this.style.borderColor = '#1A4B4F';
+    });
+
+    toggleRowsButton.addEventListener('mouseleave', function () {
+        this.style.backgroundColor = '#1E5B5E';
+    });
+
+    updateVisibleRows(currentLimit);
+});
+
 // Validate form upload
 function validateForm() {
     var reference = document.getElementById("reference").value;
