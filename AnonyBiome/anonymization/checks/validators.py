@@ -59,9 +59,9 @@ def check_l_diversity_violations(l_df: pd.DataFrame) -> tuple:
         description: List of violating row indices and reasons.
     """
     violations = []
-    has_issue = l_df.iloc[:, 1:].eq(0).any().any()
+    has_issue = l_df.eq(0).any().any()
     if has_issue:
-        for col in l_df.columns[1:]:
+        for col in l_df.columns:
             zero_rows = l_df[l_df[col] == 0]
             violations.extend(
                 [
@@ -156,7 +156,7 @@ def validate_privacy(
         reasons.append("t-value exceeds 0.5 for some attribute")
 
     min_k = k_df.min().iloc[0]
-    min_l = l_df.iloc[:, 1:].min().min()
+    min_l = l_df.min().min()
     max_t = t_numeric.max().max()
 
     return PrivEval(
