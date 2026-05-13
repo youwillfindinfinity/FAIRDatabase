@@ -1,54 +1,34 @@
 """Functions for applying local differential privacy noise to data columns."""
 
+import math
 import numpy as np
 
 
-def add_randomized_response(value, categories, p=0.5):
+def add_randomized_response(value, categories, epsilon):
     """
-    Apply randomized response to a categorical value.
-    ---
-    tags:
-      - differential-privacy
-    parameters:
-      - name: value
-        type: string
-        description: Original categorical value.
-      - name: categories
-        type: array
-        description: List of unique categories in the column.
-      - name: p
-        type: number
-        default: 0.5
-        description: Probability to return the original value.
-    returns:
-      type: string
-      description: Noisy value after applying randomized response.
+    Apply randomized response satisfying ε-Local Differential Privacy.
+
+    Retention probability: p = e^ε / (e^ε + k - 1), where k = len(categories).
+    When randomising, the replacement is drawn uniformly from the remaining
+    k-1 categories (excluding the original value) so that the empirical
+    retention rate equals p exactly.
     """
+    k = len(categories)
+    p = math.exp(epsilon) / (math.exp(epsilon) + k - 1)
     if np.random.random() < p:
         return value
-    return np.random.choice(categories)
+    others = [c for c in categories if c != value]
+    return np.random.choice(others) if others else value
 
 
 def add_laplace_noise(column, sensitivity, epsilon):
     """
-    Add Laplace noise to a numerical column.
-    ---
-    tags:
-      - differential-privacy
-    parameters:
-      - name: column
-        type: array
-        description: Original numerical column (Pandas Series).
-      - name: sensitivity
-        type: number
-        description: Sensitivity of the function applied to the column.
-      - name: epsilon
-        type: number
-        description: Privacy budget parameter (ε).
-    returns:
-      type: array
-      description: Noisy column after adding Laplace noise.
+    Add Laplace noise to a numerical column (ε-differential privacy).
+
+    :raises ValueError: if epsilon <= 0.
     """
+    if epsilon <= 0:
+        raise ValueError(f"epsilon must be positive, got {epsilon}")
     scale = sensitivity / epsilon
     noise = np.random.laplace(loc=0, scale=scale, size=column.shape)
     return column + noise
@@ -57,25 +37,9 @@ def add_laplace_noise(column, sensitivity, epsilon):
 def add_noise_to_df(df, categorical_columns, numerical_columns, epsilon):
     """
     Add noise to a DataFrame based on local differential privacy.
-    ---
-    tags:
-      - differential-privacy
-    parameters:
-      - name: df
-        type: object
-        description: Original DataFrame to modify.
-      - name: categorical_columns
-        type: array
-        description: Names of columns treated as categorical.
-      - name: numerical_columns
-        type: array
-        description: Names of columns treated as numerical.
-      - name: epsilon
-        type: number
-        description: Privacy budget parameter (ε).
-    returns:
-      type: object
-      description: Modified DataFrame with randomized and Laplace noise added.
+
+    Numerical columns receive Laplace noise; categorical columns receive
+    randomized response. Both mechanisms use the provided epsilon value.
     """
     noisy_df = df.copy()
 
@@ -84,9 +48,9 @@ def add_noise_to_df(df, categorical_columns, numerical_columns, epsilon):
         noisy_df[column] = add_laplace_noise(df[column], sensitivity, epsilon)
 
     for column in categorical_columns:
-        categories = df[column].unique()
+        categories = df[column].unique().tolist()
         noisy_df[column] = df[column].apply(
-            lambda x: add_randomized_response(x, categories)
+            lambda x: add_randomized_response(x, categories, epsilon)
         )
 
     return noisy_df
@@ -95,23 +59,9 @@ def add_noise_to_df(df, categorical_columns, numerical_columns, epsilon):
 def validate_column_selection(columns, categorical_cols, numerical_cols):
     """
     Validate that the selected categorical and numerical columns are correct.
-    ---
-    tags:
-      - differential-privacy
-    parameters:
-      - name: columns
-        type: array
-        description: Complete list of all column names in the dataset.
-      - name: categorical_cols
-        type: array
-        description: User-selected categorical columns.
-      - name: numerical_cols
-        type: array
-        description: User-selected numerical columns.
-    returns:
-      type: boolean
-      description: True if selection is valid and covers all columns with
-                   no overlaps.
+
+    Returns True if selection is valid: all selected columns exist in the
+    dataset and no column appears in both lists.
     """
     selected_cols = categorical_cols + numerical_cols
     return set(selected_cols).issubset(set(columns)) and (
