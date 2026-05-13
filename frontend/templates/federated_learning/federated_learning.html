@@ -1,38 +1,66 @@
 {% extends "dashboard/layout.html" %}
-{% block title %}FAIRMicrobiome | Federated Learning{% endblock %}
+{% block title %}FAIRDatabase | Federated Learning{% endblock %}
 {% block content %}
 <div class="row justify-content-center">
-   <div class="col-md-10">
-      <div class="card">
-         <div class="card-body">
-            <h1 class="display-6">Federated learning status</h1>
-            <p id="fed-status" class="mb-2">Loading...</p>
-            <pre id="fed-json" class="bg-light p-3 small"></pre>
-         </div>
+  <div class="col-md-10">
+
+    <div class="card mb-4">
+      <div class="card-body">
+        <h1 class="display-6">Federated Learning</h1>
+        <p class="text-muted">
+          Internal FL engine — FedProx aggregation with (ε,δ)-DP via RDP accountant.
+        </p>
       </div>
-   </div>
+    </div>
+
+    <!-- Active Tasks -->
+    <div class="card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>FL Tasks</strong>
+        <a href="/admin/fl" class="btn btn-sm btn-outline-secondary">Admin view</a>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead><tr>
+            <th>Task ID</th><th>Algorithm</th><th>Rounds</th>
+            <th>ε Budget</th><th>Mode</th><th>Status</th>
+          </tr></thead>
+          <tbody>
+          {% for t in tasks %}
+          <tr>
+            <td><code>{{ t.id[:8] }}</code></td>
+            <td>{{ t.algorithm }}</td>
+            <td>{{ t.rounds_done }}/{{ t.rounds_total }}</td>
+            <td>ε={{ t.dp_epsilon }}</td>
+            <td>{% if t.simulation %}<span class="badge bg-info">Simulation</span>{% else %}<span class="badge bg-primary">Real FL</span>{% endif %}</td>
+            <td><span class="badge bg-{% if t.status == 'completed' %}success{% elif t.status == 'running' %}warning{% else %}secondary{% endif %}">{{ t.status }}</span></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="text-center text-muted py-3">No FL tasks yet. Create one via POST /fl/tasks.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- API Reference -->
+    <div class="card">
+      <div class="card-header"><strong>API Quick Reference</strong></div>
+      <div class="card-body">
+        <pre class="bg-light p-3 small">POST /fl/tasks
+  { "dp_epsilon": 1.0, "rounds_total": 10, "algorithm": "fedprox",
+    "simulation": true, "sim_alpha": 0.5, "sim_n_clients": 5,
+    "model_arch": {"type": "tabular_mlp", "input_dim": 10,
+                   "hidden_dims": [64,32], "output_dim": 1, "task": "regression"} }
+
+GET  /fl/tasks/&lt;id&gt;
+GET  /fl/tasks/&lt;id&gt;/rounds
+POST /fl/tasks/&lt;id&gt;/rounds/&lt;n&gt;/gradients   { "ciphertext": "...", "nonce": "..." }
+GET  /fl/tasks/&lt;id&gt;/model
+POST /fl/tasks/&lt;id&gt;/export-params           { "name": "FL Run 1" }</pre>
+      </div>
+    </div>
+
+  </div>
 </div>
-
-<script>
-   const modelId = "{{ model_id }}";
-   const statusEl = document.getElementById("fed-status");
-   const jsonEl = document.getElementById("fed-json");
-
-   fetch(`/federated/state?model_id=${encodeURIComponent(modelId)}`)
-      .then((resp) => resp.json().then((data) => ({ ok: resp.ok, data })))
-      .then(({ ok, data }) => {
-         if (!ok || data.error) {
-            statusEl.textContent = data.error || "Failed to load state";
-            jsonEl.textContent = "";
-            return;
-         }
-         statusEl.textContent = `model_id=${data.model_id}, round=${data.round}, status=${data.status}, clients=${data.participating_clients}`;
-         jsonEl.textContent = JSON.stringify(data, null, 2);
-      })
-      .catch(() => {
-         statusEl.textContent = "Failed to load state";
-         jsonEl.textContent = "";
-      });
-</script>
-
 {% endblock %}
