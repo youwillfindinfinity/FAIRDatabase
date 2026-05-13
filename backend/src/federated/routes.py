@@ -28,7 +28,14 @@ from src.privacy.helpers import clip_gradients, add_gaussian_noise_dp
 
 routes = Blueprint("federated_routes", __name__)
 
+import logging as _logging
+
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret")
+if SECRET_KEY == "dev-secret":
+    _logging.getLogger(__name__).warning(
+        "SECRET_KEY is using the insecure dev default — "
+        "set SECRET_KEY env var before deploying FL in production"
+    )
 
 # ── Legacy redirect ────────────────────────────────────────────────────────────
 
@@ -166,8 +173,8 @@ def submit_gradients(task_id, round_n):
     new_count = existing_count + 1
 
     # Check if all expected clients have submitted
-    clients_needed = int(task.get("sim_n_clients", 1)) if task["simulation"] else new_count
-    is_final = task["simulation"] or new_count >= clients_needed
+    clients_needed = int(task.get("sim_n_clients", 1))
+    is_final = new_count >= clients_needed
 
     if is_final:
         # Divide accumulated sum by client count to get average
