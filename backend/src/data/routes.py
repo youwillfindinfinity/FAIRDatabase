@@ -10,11 +10,13 @@ from flask import (
     url_for,
     abort,
     g,
+    jsonify,
 )
 
 from src.auth.decorators import login_required
 from src.dashboard.helpers import assert_can_modify_table
 from .form import DataGeneralizationHandler, DataP29ScoreHandler
+from src.federated import db as fl_db
 
 import asyncio
 
@@ -201,3 +203,31 @@ def upload_metadata(table_name):
 
     return render_template("/data/upload_metadata.html",
                           table_name=table_name)
+
+
+@routes.route("/datasets/<dataset_id>/fl-enroll", methods=["POST"])
+@login_required("admin", "curator")
+def fl_enroll(dataset_id):
+    """
+    Mark a dataset as FL-eligible after P29 assessment passes.
+
+    Creates a fl_epsilon_budget row with the provided total_budget (default 10.0 ε).
+    Only datasets that have completed data generalisation should be enrolled.
+    """
+    payload = request.get_json(silent=True) or {}
+    total_budget = float(payload.get("total_budget", 10.0))
+
+    if total_budget <= 0:
+        return jsonify({"error": "total_budget must be positive"}), 400
+
+    try:
+        fl_db.enroll_dataset(g.db, dataset_id, total_budget)
+    except Exception as exc:
+        g.db.rollback()
+        return jsonify({"error": str(exc)}), 500
+
+    return jsonify({
+        "dataset_id": dataset_id,
+        "fl_eligible": True,
+        "total_budget": total_budget,
+    }), 200
