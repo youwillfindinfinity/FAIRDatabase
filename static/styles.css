@@ -59,6 +59,11 @@
   /* Accent */
   --color-accent:         #0369A1;
 
+  /* Score card warm background (no equivalent BS token) */
+  --color-score-card-bg:  #F2EDE2;
+  /* Score k-value muted text (warm grey) */
+  --color-text-muted-warm: #797771;
+
   /* Spacing (4px base grid) */
   --space-1:  4px;
   --space-2:  8px;
@@ -569,6 +574,30 @@ h1, h2, h3, h4, h5, h6 {
    ============================================================ */
 .info-icon--active {
   color: var(--color-primary-mid);
+}
+
+/* ============================================================
+   UTILITY CLASSES — Design-system tokens exposed as helpers
+   ============================================================ */
+
+/* Warm score-card background (privacy metrics pages) */
+.card-warm {
+  background-color: var(--color-score-card-bg);
+}
+
+/* Primary brand colour applied as text */
+.text-primary-custom {
+  color: var(--color-primary);
+}
+
+/* Warm-grey muted text (k-value display) */
+.text-muted-warm {
+  color: var(--color-text-muted-warm);
+}
+
+/* Table background for dataset list / search results */
+.table-bg-muted {
+  background-color: var(--color-surface-muted);
 }
 
 /* ============================================================
