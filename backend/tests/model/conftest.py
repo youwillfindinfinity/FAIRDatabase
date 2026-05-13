@@ -4,7 +4,12 @@ from app import get_db
 
 @pytest.fixture(scope="module")
 def pbpk_client(app):
-    """Test client with session seeded as a logged-in user for stress tests."""
+    """Test client with session seeded as a curator user for stress tests.
+
+    POST /model/parameter-sets and POST /model/runs require admin or curator
+    role. This fixture registers, logs in, and assigns the curator role so
+    that RBAC gates pass during the stress test suite.
+    """
     from config import supabase_extension
 
     TEST_EMAIL = "pbpk_stress@test.com"
@@ -26,11 +31,67 @@ def pbpk_client(app):
         users = supabase_extension.client.auth.admin.list_users()
         user = next((u for u in users if u.email == TEST_EMAIL), None)
 
+        if user:
+            db = get_db()
+            cur = db.cursor()
+            cur.execute(
+                "INSERT INTO _fd.user_roles (user_id, role) VALUES (%s, 'curator') "
+                "ON CONFLICT (user_id) DO UPDATE SET role = 'curator'",
+                (str(user.id),),
+            )
+            db.commit()
+            cur.close()
+
     yield client, TEST_EMAIL
 
     with app.app_context():
         if user:
             supabase_extension.client.auth.admin.delete_user(user.id)
+
+
+@pytest.fixture(scope="class")
+def curator_user(app, client):
+    """Registers, logs in, and assigns the curator role to the test user.
+
+    POST /model/parameter-sets and POST /model/runs require admin or curator
+    role. Use this fixture instead of logged_in_user for tests that call
+    those write endpoints.
+    """
+    from config import supabase_extension
+
+    TEST_EMAIL = "test_user_1@test.com"
+    TEST_PASSWORD = "aBJ3%!fj0_f42h2pvw3"
+
+    client.post(
+        "/auth/register",
+        data={"email": TEST_EMAIL, "password": TEST_PASSWORD},
+        follow_redirects=True,
+    )
+    client.post(
+        "/auth/login",
+        data={"email": TEST_EMAIL, "password": TEST_PASSWORD},
+        follow_redirects=True,
+    )
+
+    with app.app_context():
+        users = supabase_extension.client.auth.admin.list_users()
+        user = next((u for u in users if u.email == TEST_EMAIL), None)
+        if not user:
+            pytest.fail("Curator test user not found in Supabase.")
+
+        db = get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO _fd.user_roles (user_id, role) VALUES (%s, 'curator') "
+            "ON CONFLICT (user_id) DO UPDATE SET role = 'curator'",
+            (str(user.id),),
+        )
+        db.commit()
+        cur.close()
+
+        yield client, user
+
+        supabase_extension.client.auth.admin.delete_user(user.id)
 
 
 @pytest.fixture(scope="module")

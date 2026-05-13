@@ -2,8 +2,8 @@ import pytest
 
 
 class TestSimulationRunRoutes:
-    def test_create_run_returns_200_with_results(self, logged_in_user, app):
-        client, _ = logged_in_user
+    def test_create_run_returns_200_with_results(self, curator_user, app):
+        client, _ = curator_user
         ps_resp = client.post(
             "/model/parameter-sets",
             json={"name": "Run Route Test", "params": {"HalfLife": 2.5}},
@@ -33,8 +33,8 @@ class TestSimulationRunRoutes:
             db.commit()
             cur.close()
 
-    def test_create_run_missing_param_set_id_returns_400(self, logged_in_user):
-        client, _ = logged_in_user
+    def test_create_run_missing_param_set_id_returns_400(self, curator_user):
+        client, _ = curator_user
         resp = client.post(
             "/model/runs",
             json={"scenario": "no_bf"},
@@ -43,8 +43,8 @@ class TestSimulationRunRoutes:
         assert resp.status_code == 400
         assert "param_set_id" in resp.get_json()["error"]
 
-    def test_create_run_nonexistent_param_set_returns_404(self, logged_in_user):
-        client, _ = logged_in_user
+    def test_create_run_nonexistent_param_set_returns_404(self, curator_user):
+        client, _ = curator_user
         resp = client.post(
             "/model/runs",
             json={"param_set_id": 999999999, "scenario": "no_bf"},
@@ -52,8 +52,8 @@ class TestSimulationRunRoutes:
         )
         assert resp.status_code == 404
 
-    def test_create_run_persists_status_done(self, logged_in_user, app):
-        client, _ = logged_in_user
+    def test_create_run_persists_status_done(self, curator_user, app):
+        client, _ = curator_user
         ps_resp = client.post(
             "/model/parameter-sets",
             json={"name": "Persist Test", "params": {}},
@@ -85,13 +85,13 @@ class TestSimulationRunRoutes:
             db.commit()
             cur.close()
 
-    def test_get_nonexistent_run_returns_404(self, logged_in_user):
-        client, _ = logged_in_user
+    def test_get_nonexistent_run_returns_404(self, curator_user):
+        client, _ = curator_user
         resp = client.get("/model/runs/999999999")
         assert resp.status_code == 404
 
-    def test_invalid_scenario_sets_run_status_error(self, logged_in_user, app):
-        client, _ = logged_in_user
+    def test_invalid_scenario_sets_run_status_error(self, curator_user, app):
+        client, _ = curator_user
         ps_resp = client.post(
             "/model/parameter-sets",
             json={"name": "Error Test", "params": {}},
