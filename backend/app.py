@@ -17,6 +17,7 @@ from src.privacy.routes import routes as privacy_routes
 from src.main.routes import routes as main_routes
 from src.visualization.routes import routes as visualization_routes
 from src.federated.routes import routes as federated_routes
+from src.federated.routes import fl_routes
 from src.model.routes import routes as model_routes
 from src.admin.routes import routes as admin_routes
 from src.demo.routes import routes as demo_routes
@@ -150,6 +151,7 @@ def create_app(db_name=None):
     app.register_blueprint(privacy_routes, url_prefix="/privacy")
     app.register_blueprint(visualization_routes, url_prefix="/visualization")
     app.register_blueprint(federated_routes, url_prefix="/federated")
+    app.register_blueprint(fl_routes, url_prefix="/fl")
     app.register_blueprint(model_routes, url_prefix="/model")
     app.register_blueprint(admin_routes, url_prefix="/admin")
     app.register_blueprint(demo_routes, url_prefix="/api/demo")
