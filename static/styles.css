@@ -319,49 +319,81 @@ body {
   margin-right: 0;
 }
 
-/* Browse button upload */
+/* ---- Browse button (file upload) ---- */
 .custom-file-input {
-  background-color: #D8F1F3;
-  outline: #263d3d;
+  background-color: var(--color-primary-xpale);
+  outline: var(--color-primary);
 }
-/* Placehorder color boxes dashboard */
+
+/* ---- Dashboard action cards ---- */
 .card-color-box {
   width: 100%;
-  height: 250px;
-  background-color: #B6DCDE;
+  height: 200px;
+  background-color: var(--color-primary-light);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   display: flex;
   justify-content: center;
   align-items: center;
 }
 
 .card-color-box i {
-  font-size: 900%; 
-  color: #1E5B5E; 
-  /* border: 5px solid #1E5B5E; 
-  border-radius: 30%; 
-  padding: 35px;  */
+  font-size: 5rem;
+  color: var(--color-primary);
 }
 
-/* Progress bar */
+/* Cards */
+.card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 200ms ease, transform 200ms ease;
+}
+
+.card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+/* ---- Progress bar ---- */
 #progress-bar {
   width: 100%;
-  height: 30px;
-  background-color: #f2f2f2;
-  border-radius: 5px;
+  height: 8px;
+  background-color: var(--color-border);
+  border-radius: var(--radius-full);
+  overflow: hidden;
 }
+
 #progress {
   width: 0%;
   height: 100%;
-  background-color: #B6DCDE;
-  border-radius: 5px;
+  background-color: var(--color-primary);
+  border-radius: var(--radius-full);
+  transition: width 0.3s ease;
 }
 
 .hidden-row {
-    display: none;
+  display: none;
 }
 
+/* ---- Data tables ---- */
 .table thead th {
-  background-color: #D7EBED;
+  background-color: var(--color-primary-pale);
+  color: var(--color-text-primary);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 2px solid var(--color-primary-light);
+}
+
+.table tbody td {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table tbody tr:hover {
+  background-color: var(--color-surface-muted);
 }
 
 /* Standard height for input boxes */
@@ -371,67 +403,57 @@ body {
 
 /* Privacy metrics score indicator */
 .score-wrap {
-    display: flex;
-    justify-content: center;
-    margin-bottom: 20px;
-    
+  display: flex;
+  justify-content: center;
+  margin-bottom: 20px;
 }
 
 .score {
-   
-    width: 200px;
-    height: 120px;
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    align-items: flex-end;
-    justify-content: center;
-
+  width: 200px;
+  height: 120px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
 }
 
 .score-bar {
-    position: absolute;
-    width: 100%;
-    height: 200%;
-    border-radius: 50%;
-    top: 0;
-}
-
-.score-bar .score-circle-p29 {
-    position: absolute;
-    top: 0;
-}
-
-.score-bar .score-circle-minl {
   position: absolute;
+  width: 100%;
+  height: 200%;
+  border-radius: 50%;
   top: 0;
 }
 
+.score-bar .score-circle-p29,
+.score-bar .score-circle-minl,
 .score-bar .score-circle-maxt {
   position: absolute;
   top: 0;
 }
 
 .score-value {
-    margin-bottom: 5px;
-    text-align: center;
-    color: black;
-
+  margin-bottom: 5px;
+  text-align: center;
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
 }
 
 .score-name {
-    color: black;
+  color: var(--color-text-primary);
 }
 
 .score-number {
-    font-size: 25px;
-    font-weight: 600;
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--color-primary);
 }
 
-/* Expand button customisation */
+/* Expand button */
 .no-hover:hover {
-  color: #1E5B5E;
-  background-color: none;
+  color: var(--color-primary);
+  background-color: transparent;
 }
 
 /* Callout (documentation-style) */
