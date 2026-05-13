@@ -68,6 +68,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const activeCheckbox = document.getElementById('flexCheckActive');
     const nonActiveCheckbox = document.getElementById('flexCheckNonActive1');
 
+    if (!rowLimitSelect || !tableBody) return;
+
     let currentLimit = parseInt(rowLimitSelect.value);
 
     function updateVisibleRows(limit) {
@@ -310,13 +312,15 @@ const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstra
 
 // P29 score indicator
 document.addEventListener('DOMContentLoaded', function () {
-    const p29score = parseFloat(document.getElementById('p29result').getAttribute('data-p29result'));
+    const p29el = document.getElementById('p29result');
+    if (!p29el) return;
+    const p29score = parseFloat(p29el.getAttribute('data-p29result'));
     const radiusp29 = 65;
     const dashArrayp29 = Math.PI * radiusp29 * p29score;
 
     // Update the dasharray attribute of the score-circle SVG
     const scoreCirclep29 = document.querySelector('.score-circle-p29 svg circle');
-    scoreCirclep29.setAttribute('stroke-dasharray', `${dashArrayp29} 10000`);
+    if (scoreCirclep29) scoreCirclep29.setAttribute('stroke-dasharray', `${dashArrayp29} 10000`);
 
     // Determine score range and display message
     let message = '';
@@ -336,18 +340,20 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Display the message on the page
     const scoreMessageDivp29 = document.getElementById('scoreMessage-p29');
-    scoreMessageDivp29.textContent = message;
+    if (scoreMessageDivp29) scoreMessageDivp29.textContent = message;
 });
 
 // Min L score indicator
 document.addEventListener('DOMContentLoaded', function () {
-    const minLScore = parseFloat(document.getElementById('minlresult').getAttribute('data-minl-result'));
+    const minlel = document.getElementById('minlresult');
+    if (!minlel) return;
+    const minLScore = parseFloat(minlel.getAttribute('data-minl-result'));
     const radiusminl = 65;
     const dashArrayminl = Math.PI * radiusminl * minLScore;
 
     // Update the dasharray attribute of the score-circle SVG
     const scoreCircleminl = document.querySelector('.score-circle-minl svg circle');
-    scoreCircleminl.setAttribute('stroke-dasharray', `${dashArrayminl} 10000`);
+    if (scoreCircleminl) scoreCircleminl.setAttribute('stroke-dasharray', `${dashArrayminl} 10000`);
 
     // Determine score range and display message
     let message = '';
@@ -367,19 +373,20 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Display the message on the page
     const scoreMessageDivminl = document.getElementById('scoreMessage-minl');
-    scoreMessageDivminl.textContent = message;
+    if (scoreMessageDivminl) scoreMessageDivminl.textContent = message;
 });
 
 // Max T score indicator
 document.addEventListener('DOMContentLoaded', function () {
-    const maxtscoreString = document.getElementById('maxtresult').getAttribute('data-maxt-result');
-    const maxtscore = parseFloat(maxtscoreString);
+    const maxtel = document.getElementById('maxtresult');
+    if (!maxtel) return;
+    const maxtscore = parseFloat(maxtel.getAttribute('data-maxt-result'));
     const radiusmaxt = 65;
     const dashArraymaxt = Math.PI * radiusmaxt * maxtscore;
 
     // Update the dasharray attribute of the score-circle SVG
     const scoreCirclemaxt = document.querySelector('.score-circle-maxt svg circle');
-    scoreCirclemaxt.setAttribute('stroke-dasharray', `${dashArraymaxt} 10000`);
+    if (scoreCirclemaxt) scoreCirclemaxt.setAttribute('stroke-dasharray', `${dashArraymaxt} 10000`);
 
     // Determine score range and display message
     let message = '';
@@ -399,29 +406,31 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Display the message on the page
     const scoreMessageDivmaxt = document.getElementById('scoreMessage-maxt');
-    scoreMessageDivmaxt.textContent = message;
+    if (scoreMessageDivmaxt) scoreMessageDivmaxt.textContent = message;
 });
 
 // k-anonymity message
 document.addEventListener('DOMContentLoaded', function () {
-    const k_anonResult = document.getElementById('k_anonresult').getAttribute('data-k-anon-result');
+    const kanel = document.getElementById('k_anonresult');
+    if (!kanel) return;
+    const k_anonResult = parseFloat(kanel.getAttribute('data-k-anon-result'));
     // Determine score range and display message
     let message = '';
-    if (k_anonResult == 0) {
-        message = '<placeholder for 0>';
-    } else if (k_anonResult > 0 && k_anonResult < 50) {
-        message = '<placeholder for 1-50>';
-    } else if (k_anonResult >= 50 && k_anonResult < 100) {
-        message = '<placeholder 50-100>';
-    } else if (k_anonResult > 100) {
-        message = '<placeholder > 100>';
+    if (k_anonResult === 0) {
+        message = 'No anonymity — each record is unique. Privacy processing is required.';
+    } else if (k_anonResult > 0 && k_anonResult < 5) {
+        message = 'Very low k-anonymity. Each individual is distinguishable among fewer than 5 others.';
+    } else if (k_anonResult >= 5 && k_anonResult < 20) {
+        message = 'Moderate k-anonymity. Consider further generalization for sensitive data.';
+    } else if (k_anonResult >= 20) {
+        message = 'Good k-anonymity. Each record is indistinguishable among at least 20 others.';
     } else {
         message = 'Invalid score range.';
     }
 
     // Display the message on the page
     const scoreMessageDivkanon = document.getElementById('scoreMessage-kanon');
-    scoreMessageDivkanon.textContent = message;
+    if (scoreMessageDivkanon) scoreMessageDivkanon.textContent = message;
 });
 
 
