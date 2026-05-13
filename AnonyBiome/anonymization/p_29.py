@@ -1,6 +1,5 @@
 import pandas as pd
 
-from AnonyBiome.anonymization.utils.helpers import compute_normalize_t_values
 from AnonyBiome.anonymization.checks.validators import validate_privacy, PrivEval
 from AnonyBiome.anonymization.k_anonymity import k_anonymity_for_sensitive_attr
 from AnonyBiome.anonymization.t_closeness import t_closeness_for_sensitive_attr
@@ -65,10 +64,12 @@ def P_29_score(
 
     # --- Normalize remaining values ---
     normalized_l = l_df.select_dtypes(include="number").mean().mean()
-    normalized_t = compute_normalize_t_values(t_numeric).mean().mean()
 
     # --- Compute final score ---
-    score = w_k * (1 - (1 / min_k)) + w_l * normalized_l + w_t * (1 - normalized_t)
+    # Use raw mean t directly (already in [0,1]); per-column min-max collapses
+    # to 0 when all groups share the same t-score, inflating the w_t contribution.
+    mean_t = t_numeric.mean().mean()
+    score = w_k * (1 - (1 / min_k)) + w_l * normalized_l + w_t * (1 - mean_t)
 
     privEval = privEval._replace(score=score)
 
