@@ -580,3 +580,9 @@ h1, h2, h3, h4, h5, h6 {
     animation-duration: 0.01ms !important;
   }
 }
+
+/* Sidebar toggle button */
+.sidebar-toggle-btn {
+  background-color: transparent;
+  color: var(--color-sidebar-text);
+}
