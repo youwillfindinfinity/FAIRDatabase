@@ -67,3 +67,30 @@ def validate_column_selection(columns, categorical_cols, numerical_cols):
     return set(selected_cols).issubset(set(columns)) and (
         len(set(categorical_cols).intersection(numerical_cols)) == 0
     )
+
+
+def clip_gradients(weights: np.ndarray, clip_norm: float) -> np.ndarray:
+    """
+    Clip weight/gradient vector to L2 norm (sensitivity bounding for DP).
+
+    Required before adding Gaussian noise — without clipping, sensitivity is
+    unbounded and the DP guarantee is mathematically invalid.
+    """
+    norm = np.linalg.norm(weights)
+    if norm == 0.0:
+        return weights
+    return weights * min(1.0, clip_norm / norm)
+
+
+def add_gaussian_noise_dp(
+    weights: np.ndarray, noise_mult: float, clip_norm: float
+) -> np.ndarray:
+    """
+    Add calibrated Gaussian noise for (ε,δ)-DP after clipping.
+
+    σ = noise_mult * clip_norm, where noise_mult is pre-computed by the RDP
+    accountant (see src/federated/fl_privacy.py) to satisfy the ε,δ budget
+    across all FL rounds.
+    """
+    sigma = noise_mult * clip_norm
+    return weights + np.random.normal(0.0, sigma, size=weights.shape)
