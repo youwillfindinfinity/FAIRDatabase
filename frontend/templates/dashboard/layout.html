@@ -15,7 +15,7 @@
       <link href="https://cdnjs.cloudflare.com/ajax/libs/mdb-ui-kit/3.6.0/mdb.min.css" rel="stylesheet" />
       <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
    </head>
-   <body class="d-flex flex-column" style="background-color: #ebeff3;" id="body">
+   <body class="d-flex flex-column" id="body">
       <!-- Sidebar -->
       <div class="sidebar d-flex flex-column" id="sidebar">
          <button class="btn mt-1 ml-auto" style="background-color: transparent; color: #fafafa;" type="button" onclick="toggleSidebar()">
@@ -30,14 +30,14 @@
          </div>
          <ul class="navbar-nav flex-grow-1">
             <li class="nav-item">
-               <a class="nav-link" {% if current_path == '/dashboard' %} style="background-color: #102F31;" {% endif %} href="/dashboard"
+               <a class="nav-link{% if current_path == '/dashboard' %} active{% endif %}" href="/dashboard"
                   data-bs-toggle="tooltip" data-bs-placement="right" data-bs-title="Dashboard">
                <i class="fa-solid fa-house"></i>
                <span class="sidebar-text">Dashboard</span>
                </a>
             </li>
             <li class="nav-item">
-               <a class="nav-link" {% if current_path == '/dashboard/search'%}style="background-color: #102F31;"{% endif %} {% if current_path == '/table_preview' %}style="background-color: #102F31;"{% endif %} href="/dashboard/search"
+               <a class="nav-link{% if current_path == '/dashboard/search' or current_path == '/table_preview' %} active{% endif %}" href="/dashboard/search"
                   data-bs-toggle="tooltip" data-bs-placement="right" data-bs-title="Search">
                <i class="fas fa-search"></i>
                <span class="sidebar-text">Search</span>
@@ -45,14 +45,14 @@
             </li>
             {% if can_upload %}
             <li class="nav-item">
-               <a class="nav-link" {% if current_path == '/dashboard/upload' %} style="background-color: #102F31;" {% endif %} href="/dashboard/upload"
+               <a class="nav-link{% if current_path == '/dashboard/upload' %} active{% endif %}" href="/dashboard/upload"
                   data-bs-toggle="tooltip" data-bs-placement="right" data-bs-title="Upload">
                <i class="fas fa-upload"></i>
                <span class="sidebar-text">Upload</span>
                </a>
             </li>
             <li class="nav-item">
-               <a class="nav-link" {% if current_path == '/dashboard/update' %} style="background-color: #102F31;" {% endif %} href="/dashboard/update"
+               <a class="nav-link{% if current_path == '/dashboard/update' %} active{% endif %}" href="/dashboard/update"
                   data-bs-toggle="tooltip" data-bs-placement="right" data-bs-title="Update entry">
                <i class="fa-solid fa-arrows-rotate"></i>
                <span class="sidebar-text">Update entry</span>
@@ -61,7 +61,7 @@
             {% endif %}
             {% if is_admin %}
             <li class="nav-item">
-               <a class="nav-link" {% if current_path and current_path.startswith('/admin') %} style="background-color: #102F31;" {% endif %} href="/admin/users"
+               <a class="nav-link{% if current_path and current_path.startswith('/admin') %} active{% endif %}" href="/admin/users"
                   data-bs-toggle="tooltip" data-bs-placement="right" data-bs-title="Admin">
                <i class="fa-solid fa-user-shield"></i>
                <span class="sidebar-text">Admin</span>
@@ -69,22 +69,21 @@
             </li>
             {% endif %}
             <li class="nav-item">
-               <a class="nav-link"{% if current_path == '/data_generalization/data_generalization' or current_path == '/p29score' or current_path == '/differential_privacy' or current_path == '/privacy_processing' %}
-               style="background-color: #102F31; pointer-events: none; cursor:pointer;" {% endif %} href="/data/data_generalization"
+               <a class="nav-link{% if current_path == '/data_generalization/data_generalization' or current_path == '/p29score' or current_path == '/differential_privacy' or current_path == '/privacy_processing' %} active{% endif %}" href="/data/data_generalization"
                data-bs-toggle="tooltip" data-bs-placement="right" data-bs-title="Data generalization">
                <i class="fa-solid fa-shield-halved"></i>
                <span class="sidebar-text">Data generalization</span>
                </a>
             </li>
             <li class="nav-item">
-               <a class="nav-link" {% if current_path == '/federated/ui' %} style="background-color: #102F31;" {% endif %} href="/federated/ui"
+               <a class="nav-link{% if current_path == '/federated/ui' %} active{% endif %}" href="/federated/ui"
                   data-bs-toggle="tooltip" data-bs-placement="right" data-bs-title="Federated learning">
                <i class="fa-solid fa-arrows-split-up-and-left"></i>
                <span class="sidebar-text">Federated learning</span>
                </a>
             </li>
             <li class="nav-item">
-               <a class="nav-link" {% if current_path == '/visualization' %} style="background-color: #102F31;" {% endif %} href="/visualization"
+               <a class="nav-link{% if current_path == '/visualization' %} active{% endif %}" href="/visualization"
                   data-bs-toggle="tooltip" data-bs-placement="right" data-bs-title="Visualization">
                <i class="fa-solid fa-chart-line"></i>
                <span class="sidebar-text">Visualization</span>
@@ -126,7 +125,7 @@
                <div style="height: 40px;"></div>
                <div class="collapse navbar-collapse" id="navbarSupportedContent"></div>
                <a  data-bs-toggle="tooltip" data-bs-placement="bottom" {% if current_path != '/documentation' %} href="/documentation" data-bs-title="View documentation"{% endif %}>
-                  <i class="fa fa-info-circle info-icon" aria-hidden="true" {% if current_path == '/documentation' %} style="color: #70999C;" {% endif %} ></i>
+                  <i class="fa fa-info-circle info-icon{% if current_path == '/documentation' %} info-icon--active{% endif %}" aria-hidden="true"></i>
                </a>
             </div>
          </nav>
