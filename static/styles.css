@@ -96,7 +96,7 @@ body {
   transition: margin-left 0.3s ease; 
 }
 #sticky-footer {
-  flex-shrink: none;
+  flex-shrink: 0;
 }
 .custom-footer {
   background-color: white; 
