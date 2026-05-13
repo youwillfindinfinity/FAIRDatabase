@@ -216,75 +216,63 @@ label {
 /* Navbar information icon */
 .navbar .info-icon {
   font-size: 1.5rem;
-  color: #1E5B5E;
+  color: var(--color-primary);
   position: absolute;
   right: 0.1px;
   top: 50%;
   transform: translateY(-50%);
+  cursor: pointer;
 }
 @media (min-width: 992px) {
   .navbar .info-icon {
-     font-size: 2rem;
+    font-size: 2rem;
   }
 }
 
-/* Sticky footer */
+/* ---- Page shell ---- */
 html,
 body {
   height: 100%;
 }
+
 #page-content {
   flex: 1 0 auto;
-  margin-left: 250px; 
-  transition: margin-left 0.3s ease; 
+  margin-left: 250px;
+  transition: margin-left 0.3s ease;
 }
+
 #sticky-footer {
   flex-shrink: 0;
 }
+
 .custom-footer {
-  background-color: white; 
-  color: black; 
-  padding: 20px 0; 
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+  padding: 20px 0;
 }
 
-/* Sidebar */
+/* ---- Sidebar & Navigation ---- */
 .sidebar {
   position: fixed;
   top: 0;
   left: 0;
   height: 100%;
   width: 250px;
-  background-color: #061313; 
-  color: white;
-  padding-top: 60px; 
-  transition: width 0.3s ease; 
+  background-color: var(--color-sidebar-bg);
+  color: var(--color-sidebar-text);
+  padding-top: 60px;
+  transition: width 0.3s ease;
+  z-index: 100;
+}
+
+.sidebar button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
 }
 
 #body.collapsed .nav-link .sidebar-text {
   display: none;
-}
-
-.sidebar button {
-  position: absolute; 
-  top: 10px; 
-  right: 10px; 
-}
-
-.navbar-nav .nav-link {
-  transition: all 0.3s ease;
-  border-radius: 5px; 
-  padding: 10px 20px; 
-  display: flex;
-  align-items: center;
-}
-
-.navbar-nav .nav-link i {
-  margin-right: 10px;
-}
-
-.navbar-nav .nav-link:hover {
-  background-color: #102F31; 
-  border-radius: 8px; 
 }
 
 .sidebar ul.navbar-nav li.nav-item {
@@ -296,12 +284,30 @@ body {
   border-bottom: none;
 }
 
-.sidebar ul.navbar-nav li.nav-item a.nav-link {
-  color: white;
+.navbar-nav .nav-link {
+  color: var(--color-sidebar-text);
+  padding: 10px 20px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background-color 200ms ease;
+  cursor: pointer;
 }
 
-.sidebar ul.navbar-nav li.nav-item a.nav-link:hover {
-  color: #fff; 
+.navbar-nav .nav-link i {
+  margin-right: 10px;
+}
+
+.navbar-nav .nav-link:hover,
+.navbar-nav .nav-link.active {
+  background-color: var(--color-sidebar-active);
+  color: var(--color-sidebar-text);
+}
+
+.navbar-nav .nav-link:focus-visible {
+  outline: 2px solid var(--color-primary-mid);
+  outline-offset: -2px;
 }
 
 #body.collapsed .navbar-nav .nav-link {
