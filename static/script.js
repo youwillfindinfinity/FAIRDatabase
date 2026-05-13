@@ -214,6 +214,11 @@ function validateForm() {
 function uploadAndCloseForm() {
     var formData = new FormData($("#upload-form")[0]);
 
+    // Disable close controls while upload is in progress
+    $('#uploadModal .btn-close, #uploadModal .btn-cancel-custom').prop('disabled', true);
+    $('#uploadModal').data('bs.modal')._config.backdrop = 'static';
+    $('#uploadModal').data('bs.modal')._config.keyboard = false;
+
     $.ajax({
         url: '/dashboard/upload',
         type: 'POST',
@@ -226,7 +231,7 @@ function uploadAndCloseForm() {
                 if (evt.lengthComputable) {
                     var progress = Math.round((evt.loaded / evt.total) * 100);
                     $("#progress").css("width", progress + "%");
-                    $("#progress-message").text("Creating table:" + progress + "% . Waiting to finalize...");
+                    $("#progress-message").text("Creating table: " + progress + "% — waiting to finalize...");
                 }
             }, false);
             return xhr;
@@ -234,6 +239,7 @@ function uploadAndCloseForm() {
         success: function (response) {
             $("#progress-message").text(response.message || "File uploaded successfully.");
             $("#progress").removeClass("bg-danger").addClass("bg-success");
+            $('#uploadModal .btn-close, #uploadModal .btn-cancel-custom').prop('disabled', false);
         },
         error: function (xhr) {
             var msg = "Error uploading file.";
@@ -242,6 +248,7 @@ function uploadAndCloseForm() {
             }
             $("#progress-message").text(msg);
             $("#progress").removeClass("bg-success").addClass("bg-danger");
+            $('#uploadModal .btn-close, #uploadModal .btn-cancel-custom').prop('disabled', false);
         }
     });
 }
