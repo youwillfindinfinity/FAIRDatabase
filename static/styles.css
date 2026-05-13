@@ -89,57 +89,84 @@
   --radius-full: 9999px;
 }
 
-/* Custom primary button */
+/* ---- Buttons ---- */
 .btn-primary-custom {
-  background-color: #1E5B5E;
-  color: #fff;
-
+  background-color: var(--color-primary);
+  color: var(--color-text-inverse);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 0.5rem 1.25rem;
+  font-weight: 500;
+  font-family: var(--font-body);
+  cursor: pointer;
+  transition: background-color 200ms ease, transform 150ms ease;
 }
-.btn-primary-custom:hover,
-.btn-primary-custom:focus {
-  color: #fff;
-  background-color: #70999C;
-  border-color: #1A4B4F; 
+.btn-primary-custom:hover {
+  background-color: var(--color-primary-mid);
+  color: var(--color-text-inverse);
+  transform: translateY(-1px);
+}
+.btn-primary-custom:active {
+  background-color: var(--color-primary-hover);
+  transform: translateY(0);
+}
+.btn-primary-custom:focus-visible {
+  outline: 3px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+.btn-primary-custom:disabled,
+.btn-primary-custom.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
 }
 
-.btn-primary-custom:active, .btn-primary-custom.active,
-.open > .dropdown-toggle.btn-primary-custom {
-  background-color: #164346;
-}
-
-/* Custom cancel button */
 .btn-cancel-custom {
   background-color: #99B8BB;
-  color: black;
-
+  color: var(--color-text-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background-color 200ms ease;
 }
-.btn-cancel-custom:hover,
-.btn-cancel-custom:focus {
-  color: black;
+.btn-cancel-custom:hover {
   background-color: #C2D7DA;
+  color: var(--color-text-primary);
+}
+.btn-cancel-custom:focus-visible {
+  outline: 3px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+.btn-cancel-custom:disabled,
+.btn-cancel-custom.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
-.btn-primary-custom:active, .btn-primary-custom.active,
-.open > .dropdown-toggle.btn-primary-custom {
-  background-color: #164346;
-}
-
-/* Custom secondary button */
 .btn-secondary-custom {
-  background-color: #B6DCDE;
-  color: black;
-
+  background-color: var(--color-primary-light);
+  color: var(--color-text-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background-color 200ms ease;
 }
-.btn-secondary-custom:hover,
-.btn-secondary-custom:focus {
-  color: #fff;
-  background-color: #CCE6E8;
-  border-color: #94B5B6; 
+.btn-secondary-custom:hover {
+  background-color: var(--color-primary-pale);
+  color: var(--color-text-primary);
 }
-
-.btn-secondary-custom:active, .btn-secondary-custom.active,
-.open > .dropdown-toggle.btn-secondary-custom {
-  background-color: #164346;
+.btn-secondary-custom:active {
+  background-color: var(--color-primary-hover);
+  color: var(--color-text-inverse);
+}
+.btn-secondary-custom:focus-visible {
+  outline: 3px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+.btn-secondary-custom:disabled,
+.btn-secondary-custom.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .custom-alert-warning {
