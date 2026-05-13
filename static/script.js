@@ -440,6 +440,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var countDisplay = document.getElementById('selected-count');
     var messageDisplay = document.getElementById('selection-message');
 
+    if (!countDisplay || !messageDisplay) return;
 
     function updateSelectedCount() {
         var selectedCount = 0;
@@ -449,41 +450,6 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
         countDisplay.textContent = selectedCount + ' checkboxes selected';
-
-
-        // Conditional message based on selected count
-        if (selectedCount === 0) {
-            messageDisplay.textContent = 'Do you want to continue? You have no checkboxes selected.';
-        } else if (selectedCount === 1) {
-            messageDisplay.textContent = 'Do you want to remove ' + selectedCount + ' column? This action cannot be undone.';
-        } else {
-            messageDisplay.textContent = 'Do you want to remove ' + selectedCount + ' columns? This action cannot be undone.';
-        }
-    }
-
-    checkboxes.forEach(function (checkbox) {
-        checkbox.addEventListener('change', updateSelectedCount);
-    });
-
-    // Initial count display
-    updateSelectedCount();
-});
-
-document.addEventListener('DOMContentLoaded', function () {
-    var checkboxes = document.querySelectorAll('input[type="checkbox"][name="columns_to_drop"]');
-    var countDisplay = document.getElementById('selected-count');
-    var messageDisplay = document.getElementById('selection-message');
-
-
-    function updateSelectedCount() {
-        var selectedCount = 0;
-        checkboxes.forEach(function (checkbox) {
-            if (checkbox.checked) {
-                selectedCount++;
-            }
-        });
-        countDisplay.textContent = selectedCount + ' checkboxes selected';
-
 
         // Conditional message based on selected count
         if (selectedCount === 0) {
