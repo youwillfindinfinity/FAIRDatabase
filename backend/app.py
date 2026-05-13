@@ -133,10 +133,11 @@ def create_app(db_name=None):
     """Construct the core application of Flask. Holds an
     optional argument to override the databse URI, this is used
     for Pytest."""
+    _base = os.path.dirname(os.path.abspath(__file__))
     app = Flask(
         __name__,
-        template_folder=os.path.abspath("../frontend/templates"),
-        static_folder=os.path.abspath("../static"),
+        template_folder=os.path.join(_base, "../frontend/templates"),
+        static_folder=os.path.join(_base, "../static"),
     )
     app.config.from_object(Config)
     if db_name is not None:
