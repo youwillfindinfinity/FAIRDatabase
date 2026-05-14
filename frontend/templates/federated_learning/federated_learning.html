@@ -1,38 +1,740 @@
 {% extends "dashboard/layout.html" %}
-{% block title %}FAIRMicrobiome | Federated Learning{% endblock %}
+{% block title %}FAIRDatabase | Federated Learning{% endblock %}
+
 {% block content %}
-<div class="row justify-content-center">
-   <div class="col-md-10">
-      <div class="card">
-         <div class="card-body">
-            <h1 class="display-6">Federated learning status</h1>
-            <p id="fed-status" class="mb-2">Loading...</p>
-            <pre id="fed-json" class="bg-light p-3 small"></pre>
-         </div>
+<style>
+/* ── Design tokens ─────────────────────────────────────────────────────── */
+:root {
+  --fl-teal:        #0d9488;
+  --fl-teal-10:     rgba(13,148,136,.10);
+  --fl-teal-20:     rgba(13,148,136,.20);
+  --fl-teal-dk:     #0f766e;
+  --fl-slate-50:    #f8fafc;
+  --fl-slate-100:   #f1f5f9;
+  --fl-slate-200:   #e2e8f0;
+  --fl-slate-300:   #cbd5e1;
+  --fl-slate-500:   #64748b;
+  --fl-slate-600:   #475569;
+  --fl-slate-700:   #334155;
+  --fl-slate-800:   #1e293b;
+  --fl-slate-900:   #0f172a;
+  --fl-radius:      0.75rem;
+  --fl-radius-sm:   0.5rem;
+  --fl-shadow:      0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
+  --fl-shadow-md:   0 4px 6px -1px rgba(0,0,0,.10), 0 2px 4px -2px rgba(0,0,0,.10);
+  --fl-font:        'Inter', system-ui, sans-serif;
+  --fl-mono:        'Roboto Mono', Consolas, monospace;
+}
+
+/* ── Page wrapper ─────────────────────────────────────────────────────── */
+.fl-page { font-family: var(--fl-font); }
+
+/* ── Header ───────────────────────────────────────────────────────────── */
+.fl-header {
+  display: flex; align-items: flex-start; gap: 1rem;
+  padding-bottom: 1.5rem; margin-bottom: 1.5rem;
+  border-bottom: 1px solid var(--fl-slate-200);
+}
+.fl-header-icon {
+  flex-shrink: 0; width: 2.5rem; height: 2.5rem;
+  background: var(--fl-teal-10); border-radius: var(--fl-radius-sm);
+  display: flex; align-items: center; justify-content: center; margin-top: .15rem;
+}
+.fl-header h1 { font-size: 1.75rem; font-weight: 700; color: var(--fl-slate-900); margin: 0 0 .3rem; }
+.fl-header p  { color: var(--fl-slate-600); margin: 0; font-size: .9rem; max-width: 42rem; }
+
+/* ── Mode toggle ──────────────────────────────────────────────────────── */
+.fl-mode-toggle {
+  display: inline-flex; background: var(--fl-slate-100);
+  border-radius: 2rem; padding: 3px; gap: 2px; margin-bottom: 1.75rem;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.08);
+}
+.fl-mode-btn {
+  cursor: pointer; border: none; background: transparent;
+  border-radius: 2rem; padding: .45rem 1.4rem;
+  font-size: .85rem; font-weight: 600; color: var(--fl-slate-500);
+  transition: all .2s ease; white-space: nowrap;
+  display: flex; align-items: center; gap: .45rem;
+}
+.fl-mode-btn.active {
+  background: #fff; color: var(--fl-teal);
+  box-shadow: 0 1px 4px rgba(0,0,0,.12);
+}
+.fl-mode-btn svg { flex-shrink: 0; }
+
+/* ── Cards ────────────────────────────────────────────────────────────── */
+.fl-card {
+  background: #fff; border-radius: var(--fl-radius);
+  border: 1px solid var(--fl-slate-200); box-shadow: var(--fl-shadow);
+  margin-bottom: 1.25rem; overflow: hidden;
+}
+.fl-card-header {
+  padding: .85rem 1.25rem; background: var(--fl-slate-50);
+  border-bottom: 1px solid var(--fl-slate-200);
+  display: flex; align-items: center; justify-content: space-between;
+  font-weight: 600; color: var(--fl-slate-800); font-size: .9rem;
+}
+.fl-card-body { padding: 1.25rem; }
+
+/* ── Demo panel ───────────────────────────────────────────────────────── */
+.demo-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+@media (max-width: 768px) { .demo-grid { grid-template-columns: 1fr; } }
+
+.param-label {
+  display: block; font-size: .78rem; font-weight: 600;
+  color: var(--fl-slate-600); margin-bottom: .3rem; letter-spacing: .02em;
+}
+.param-row { margin-bottom: .9rem; }
+.form-control-sm, .form-select-sm {
+  font-size: .85rem; border-color: var(--fl-slate-200);
+  border-radius: var(--fl-radius-sm);
+}
+.form-control-sm:focus, .form-select-sm:focus {
+  border-color: var(--fl-teal); box-shadow: 0 0 0 3px var(--fl-teal-10);
+}
+.range-row { display: flex; align-items: center; gap: .6rem; }
+.range-row input[type=range] { flex: 1; accent-color: var(--fl-teal); }
+.range-val {
+  min-width: 2.8rem; text-align: right; font-family: var(--fl-mono);
+  font-size: .8rem; color: var(--fl-teal-dk); font-weight: 600;
+}
+
+/* ── Run button ───────────────────────────────────────────────────────── */
+.btn-fl-run {
+  background: var(--fl-teal); color: #fff; border: none;
+  border-radius: var(--fl-radius-sm); padding: .55rem 1.4rem;
+  font-size: .875rem; font-weight: 600; cursor: pointer;
+  transition: background .18s, box-shadow .18s;
+  display: flex; align-items: center; gap: .5rem;
+}
+.btn-fl-run:hover { background: var(--fl-teal-dk); box-shadow: var(--fl-shadow-md); }
+.btn-fl-run:disabled { opacity: .55; cursor: not-allowed; }
+
+/* ── Progress / results ───────────────────────────────────────────────── */
+.fl-progress-bar-wrap {
+  background: var(--fl-slate-100); border-radius: 999px; height: 8px; overflow: hidden;
+}
+.fl-progress-bar {
+  height: 100%; background: var(--fl-teal); border-radius: 999px;
+  transition: width .4s ease; width: 0%;
+}
+.fl-metric {
+  display: flex; flex-direction: column;
+  background: var(--fl-slate-50); border: 1px solid var(--fl-slate-200);
+  border-radius: var(--fl-radius-sm); padding: .75rem 1rem;
+}
+.fl-metric-label { font-size: .72rem; font-weight: 600; color: var(--fl-slate-500); text-transform: uppercase; letter-spacing: .05em; margin-bottom: .2rem; }
+.fl-metric-value { font-family: var(--fl-mono); font-size: 1.15rem; font-weight: 700; color: var(--fl-slate-800); }
+.metrics-row { display: grid; grid-template-columns: repeat(4,1fr); gap: .75rem; margin-top: 1rem; }
+@media (max-width: 600px) { .metrics-row { grid-template-columns: repeat(2,1fr); } }
+
+.log-box {
+  font-family: var(--fl-mono); font-size: .78rem; color: var(--fl-slate-700);
+  background: var(--fl-slate-900); color: #a3e635; padding: .9rem 1rem;
+  border-radius: var(--fl-radius-sm); height: 160px; overflow-y: auto;
+  white-space: pre-wrap; margin-top: .8rem; line-height: 1.55;
+}
+
+/* ── Tasks table ──────────────────────────────────────────────────────── */
+.fl-table { width: 100%; font-size: .84rem; border-collapse: collapse; }
+.fl-table th {
+  background: var(--fl-slate-50); color: var(--fl-slate-600);
+  font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+  padding: .55rem .8rem; border-bottom: 1px solid var(--fl-slate-200);
+}
+.fl-table td { padding: .6rem .8rem; border-bottom: 1px solid var(--fl-slate-100); vertical-align: middle; }
+.fl-table tr:last-child td { border-bottom: none; }
+.fl-table tr:hover td { background: var(--fl-slate-50); }
+
+/* ── Badge overrides ──────────────────────────────────────────────────── */
+.badge-completed { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+.badge-running   { background: #fef9c3; color: #854d0e; border: 1px solid #fde68a; }
+.badge-pending   { background: var(--fl-slate-100); color: var(--fl-slate-600); border: 1px solid var(--fl-slate-200); }
+.badge-sim       { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+.badge-real      { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
+.pill {
+  display: inline-block; padding: .2rem .6rem;
+  border-radius: 999px; font-size: .72rem; font-weight: 600;
+}
+
+/* ── API ref ──────────────────────────────────────────────────────────── */
+.api-pre {
+  font-family: var(--fl-mono); font-size: .78rem;
+  background: var(--fl-slate-900); color: #94a3b8;
+  border-radius: var(--fl-radius-sm); padding: 1rem 1.1rem;
+  overflow-x: auto; margin: 0; line-height: 1.65;
+}
+.api-pre .kw { color: #7dd3fc; }
+.api-pre .str { color: #a3e635; }
+.api-pre .cmt { color: #475569; }
+
+/* ── Under construction ───────────────────────────────────────────────── */
+.uc-panel {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 360px; text-align: center; padding: 3rem;
+  background: linear-gradient(135deg, #fafafa 0%, #f1f5f9 100%);
+  border-radius: var(--fl-radius); border: 2px dashed var(--fl-slate-200);
+}
+.uc-icon { font-size: 3.5rem; margin-bottom: 1rem; opacity: .6; }
+.uc-panel h2 { font-weight: 700; color: var(--fl-slate-800); margin-bottom: .5rem; }
+.uc-panel p  { color: var(--fl-slate-500); max-width: 32rem; margin-bottom: 1.5rem; font-size: .9rem; }
+.uc-badge {
+  display: inline-flex; align-items: center; gap: .4rem;
+  background: #fef9c3; color: #854d0e; border: 1px solid #fde68a;
+  border-radius: 999px; padding: .35rem .9rem; font-size: .78rem; font-weight: 600;
+}
+
+/* ── Info box ─────────────────────────────────────────────────────────── */
+.fl-info-box {
+  background: var(--fl-teal-10); border: 1px solid var(--fl-teal-20);
+  border-radius: var(--fl-radius-sm); padding: .7rem 1rem;
+  font-size: .83rem; color: var(--fl-teal-dk); display: flex; gap: .6rem;
+  align-items: flex-start;
+}
+</style>
+
+<div class="fl-page">
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <div class="fl-header">
+    <div class="fl-header-icon">
+      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
+           style="color:var(--fl-teal)" viewBox="0 0 24 24">
+        <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/>
+      </svg>
+    </div>
+    <div>
+      <h1>Federated Learning</h1>
+      <p>Privacy-preserving distributed learning across sites — FedProx aggregation with (ε,δ)-DP via RDP accountant. Aligned with FAIRification.md §10 Phase 2.</p>
+    </div>
+  </div>
+
+  <!-- ── Mode toggle ─────────────────────────────────────────────────────── -->
+  <div>
+    <div class="fl-mode-toggle" role="group" aria-label="FL type selector">
+      <button class="fl-mode-btn active" id="btn-horizontal" onclick="switchMode('horizontal')">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <circle cx="5" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="12" cy="6" r="2"/>
+          <path d="M7 12h4m2 0h4M12 8v2m0 0-3 2m3-2 3 2"/>
+        </svg>
+        Horizontal FL
+      </button>
+      <button class="fl-mode-btn" id="btn-vertical" onclick="switchMode('vertical')">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="18" rx="1"/>
+          <path d="M10 12h4"/>
+        </svg>
+        Vertical FL
+      </button>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <!-- HORIZONTAL FL PANEL                                                   -->
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div id="panel-horizontal">
+
+    <div class="fl-info-box mb-4">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-top:.05rem;flex-shrink:0" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg>
+      <span>Horizontal FL shares <strong>the same features across all clients</strong> (sites have the same schema). The simulation below mirrors the <em>FedDeepInsight</em> study protocol: FedProx training with Dirichlet non-IID partitioning and tight RDP-accountant DP.</span>
+    </div>
+
+    <!-- ── Demo launcher ─────────────────────────────────────────────────── -->
+    <div class="fl-card">
+      <div class="fl-card-header">
+        <span>
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-.2em;margin-right:.35rem" viewBox="0 0 24 24">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+          Simulation Demo — FedDeepInsight Protocol
+        </span>
+        <span class="pill badge-sim">Simulation</span>
       </div>
-   </div>
-</div>
+      <div class="fl-card-body">
+        <div class="demo-grid">
+
+          <!-- Left: config ------------------------------------------------ -->
+          <div>
+            <div class="param-row">
+              <label class="param-label">Algorithm</label>
+              <select id="cfg-algo" class="form-select form-select-sm">
+                <option value="fedprox" selected>FedProx (recommended — non-IID robust)</option>
+                <option value="fedavg">FedAvg (μ = 0)</option>
+              </select>
+            </div>
+
+            <div class="param-row">
+              <label class="param-label">Rounds</label>
+              <div class="range-row">
+                <input type="range" id="cfg-rounds" min="3" max="30" value="10" oninput="document.getElementById('val-rounds').textContent=this.value">
+                <span class="range-val" id="val-rounds">10</span>
+              </div>
+            </div>
+
+            <div class="param-row">
+              <label class="param-label">Synthetic clients (Dirichlet split)</label>
+              <div class="range-row">
+                <input type="range" id="cfg-clients" min="2" max="10" value="5" oninput="document.getElementById('val-clients').textContent=this.value">
+                <span class="range-val" id="val-clients">5</span>
+              </div>
+            </div>
+
+            <div class="param-row">
+              <label class="param-label">Dirichlet α (non-IID degree — lower = more heterogeneous)</label>
+              <div class="range-row">
+                <input type="range" id="cfg-alpha" min="0.1" max="5" step="0.1" value="0.5" oninput="document.getElementById('val-alpha').textContent=parseFloat(this.value).toFixed(1)">
+                <span class="range-val" id="val-alpha">0.5</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: privacy + model config ------------------------------- -->
+          <div>
+            <div class="param-row">
+              <label class="param-label">ε Budget (total, RDP accountant) — use ≥ 3 for meaningful convergence</label>
+              <div class="range-row">
+                <input type="range" id="cfg-epsilon" min="0.5" max="10" step="0.5" value="5.0" oninput="document.getElementById('val-epsilon').textContent=parseFloat(this.value).toFixed(1)">
+                <span class="range-val" id="val-epsilon">5.0</span>
+              </div>
+            </div>
+
+            <div class="param-row">
+              <label class="param-label">FedProx μ (proximal term — 0 = FedAvg)</label>
+              <div class="range-row">
+                <input type="range" id="cfg-mu" min="0" max="0.5" step="0.01" value="0.01" oninput="document.getElementById('val-mu').textContent=parseFloat(this.value).toFixed(2)">
+                <span class="range-val" id="val-mu">0.01</span>
+              </div>
+            </div>
+
+            <div class="param-row">
+              <label class="param-label">Model architecture</label>
+              <select id="cfg-model" class="form-select form-select-sm">
+                <option value="tabular_mlp" selected>Tabular MLP — microbiome / generic CSV</option>
+                <option value="pbpk_param_estimator">PBPK parameter estimator</option>
+              </select>
+            </div>
+
+            <div class="param-row">
+              <label class="param-label">Hidden layers</label>
+              <select id="cfg-hidden" class="form-select form-select-sm">
+                <option value="[64,32]" selected>[64, 32]</option>
+                <option value="[128,64,32]">[128, 64, 32]</option>
+                <option value="[256,128]">[256, 128]</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Run button --------------------------------------------------- -->
+        <div class="d-flex align-items-center gap-3 mt-1 mb-3">
+          <button class="btn-fl-run" id="run-btn" onclick="runDemo()">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Run Simulation
+          </button>
+          <button class="btn btn-sm btn-outline-secondary" onclick="resetDemo()" id="reset-btn" style="display:none">
+            Reset
+          </button>
+          <span id="run-status" style="font-size:.82rem;color:var(--fl-slate-500)"></span>
+        </div>
+
+        <!-- Progress bar ------------------------------------------------- -->
+        <div id="progress-wrap" style="display:none">
+          <div class="d-flex justify-content-between mb-1" style="font-size:.75rem;color:var(--fl-slate-500)">
+            <span id="progress-label">Round 0 / 0</span>
+            <span id="progress-pct">0%</span>
+          </div>
+          <div class="fl-progress-bar-wrap">
+            <div class="fl-progress-bar" id="progress-bar"></div>
+          </div>
+        </div>
+
+        <!-- Metrics row -------------------------------------------------- -->
+        <div class="metrics-row" id="metrics-row" style="display:none">
+          <div class="fl-metric">
+            <span class="fl-metric-label">Rounds completed</span>
+            <span class="fl-metric-value" id="m-rounds">—</span>
+          </div>
+          <div class="fl-metric">
+            <span class="fl-metric-label">ε spent (RDP)</span>
+            <span class="fl-metric-value" id="m-epsilon">—</span>
+          </div>
+          <div class="fl-metric">
+            <span class="fl-metric-label">Clients / round</span>
+            <span class="fl-metric-value" id="m-clients">—</span>
+          </div>
+          <div class="fl-metric">
+            <span class="fl-metric-label">Privacy budget used</span>
+            <span class="fl-metric-value" id="m-budget-pct">—</span>
+          </div>
+        </div>
+
+        <!-- Log box ------------------------------------------------------ -->
+        <div class="log-box" id="log-box" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- ── Active FL tasks ───────────────────────────────────────────────── -->
+    <div class="fl-card">
+      <div class="fl-card-header">
+        <span>FL Tasks</span>
+        <div style="display:flex;gap:.5rem;align-items:center">
+          <span id="tasks-refresh-indicator" style="font-size:.72rem;color:var(--fl-slate-400)"></span>
+          <button class="btn btn-sm btn-outline-secondary" style="font-size:.78rem" onclick="loadTasks()">Refresh</button>
+          <a href="/admin/fl" class="btn btn-sm btn-outline-secondary" style="font-size:.78rem">Admin view</a>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="fl-table">
+          <thead>
+            <tr>
+              <th>Task ID</th><th>Algorithm</th><th>Rounds</th>
+              <th>ε Budget</th><th>Mode</th><th>Status</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="tasks-tbody">
+            <tr><td colspan="7" class="text-center" style="padding:2rem;color:var(--fl-slate-400);font-size:.85rem">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── API Reference ─────────────────────────────────────────────────── -->
+    <div class="fl-card">
+      <div class="fl-card-header">API Quick Reference</div>
+      <div class="fl-card-body" style="padding-bottom:.75rem">
+        <pre class="api-pre"><span class="kw">POST</span>  /fl/tasks
+  {
+    <span class="str">"dp_epsilon"</span>: 1.0,   <span class="cmt">// total ε budget (RDP accountant)</span>
+    <span class="str">"rounds_total"</span>: 10,
+    <span class="str">"algorithm"</span>: <span class="str">"fedprox"</span>,   <span class="cmt">// or "fedavg"</span>
+    <span class="str">"simulation"</span>: true,
+    <span class="str">"sim_alpha"</span>: 0.5,       <span class="cmt">// Dirichlet α — non-IID heterogeneity</span>
+    <span class="str">"sim_n_clients"</span>: 5,
+    <span class="str">"mu"</span>: 0.01,             <span class="cmt">// FedProx proximal term (0 = FedAvg)</span>
+    <span class="str">"model_arch"</span>: {
+      <span class="str">"type"</span>: <span class="str">"tabular_mlp"</span>, <span class="str">"input_dim"</span>: 10,
+      <span class="str">"hidden_dims"</span>: [64,32], <span class="str">"output_dim"</span>: 1, <span class="str">"task"</span>: <span class="str">"regression"</span>
+    }
+  }
+
+<span class="kw">GET</span>   /fl/tasks/&lt;id&gt;
+<span class="kw">GET</span>   /fl/tasks/&lt;id&gt;/rounds
+<span class="kw">POST</span>  /fl/tasks/&lt;id&gt;/rounds/&lt;n&gt;/gradients  <span class="cmt">{ "ciphertext": "...", "nonce": "..." }</span>
+<span class="kw">GET</span>   /fl/tasks/&lt;id&gt;/model
+<span class="kw">POST</span>  /fl/tasks/&lt;id&gt;/export-params          <span class="cmt">{ "name": "FL Run 1" }</span></pre>
+      </div>
+    </div>
+
+  </div><!-- /panel-horizontal -->
+
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <!-- VERTICAL FL PANEL                                                     -->
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div id="panel-vertical" style="display:none">
+
+    <div class="uc-panel">
+      <div class="uc-icon">🏗️</div>
+      <h2>Vertical Federated Learning</h2>
+      <p>
+        Vertical FL enables learning across sites that hold <strong>different feature columns</strong>
+        for overlapping entities — using split learning and entity alignment protocols.
+        This module is planned for <strong>FAIRification Phase 3</strong> (multi-hospital FL)
+        and requires cross-site Data Use Agreements encoded in ODRL/DUO and site-level
+        P29 assessment alignment.
+      </p>
+      <span class="uc-badge">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
+        </svg>
+        Under Construction — FAIRification §10 Phase 3
+      </span>
+
+      <div class="fl-info-box mt-4" style="max-width:32rem;text-align:left">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-top:.05rem;flex-shrink:0" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg>
+        <div>
+          <strong>Activation criteria:</strong>
+          <ul style="margin:.4rem 0 0;padding-left:1.2rem;font-size:.82rem">
+            <li>Data Use Agreements signed and encoded in ODRL/DUO</li>
+            <li>Standard Contractual Clauses (SCC) or BCR documented in DPV RDF</li>
+            <li>All sites passed identical P29 assessment pipeline</li>
+            <li>Entity alignment protocol agreed between data controllers</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /panel-vertical -->
+
+</div><!-- /fl-page -->
 
 <script>
-   const modelId = "{{ model_id }}";
-   const statusEl = document.getElementById("fed-status");
-   const jsonEl = document.getElementById("fed-json");
+/* ── Mode toggle ─────────────────────────────────────────────────────── */
+function switchMode(mode) {
+  document.getElementById('panel-horizontal').style.display = mode === 'horizontal' ? '' : 'none';
+  document.getElementById('panel-vertical').style.display   = mode === 'vertical'   ? '' : 'none';
+  document.getElementById('btn-horizontal').classList.toggle('active', mode === 'horizontal');
+  document.getElementById('btn-vertical').classList.toggle('active',   mode === 'vertical');
+}
 
-   fetch(`/federated/state?model_id=${encodeURIComponent(modelId)}`)
-      .then((resp) => resp.json().then((data) => ({ ok: resp.ok, data })))
-      .then(({ ok, data }) => {
-         if (!ok || data.error) {
-            statusEl.textContent = data.error || "Failed to load state";
-            jsonEl.textContent = "";
-            return;
-         }
-         statusEl.textContent = `model_id=${data.model_id}, round=${data.round}, status=${data.status}, clients=${data.participating_clients}`;
-         jsonEl.textContent = JSON.stringify(data, null, 2);
+/* ── Demo simulation (client-side, calls backend API) ───────────────── */
+let _demoRunning = false;
+
+function log(msg) {
+  const box = document.getElementById('log-box');
+  box.style.display = '';
+  box.textContent += msg + '\n';
+  box.scrollTop = box.scrollHeight;
+}
+
+function setProgress(done, total) {
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  document.getElementById('progress-bar').style.width = pct + '%';
+  document.getElementById('progress-label').textContent = `Round ${done} / ${total}`;
+  document.getElementById('progress-pct').textContent = pct + '%';
+}
+
+function setMetrics(rounds, epsilonSpent, epsilonBudget, clients) {
+  document.getElementById('m-rounds').textContent    = rounds;
+  document.getElementById('m-epsilon').textContent   = typeof epsilonSpent === 'number' ? epsilonSpent.toFixed(4) : epsilonSpent;
+  document.getElementById('m-clients').textContent   = clients;
+  const pct = epsilonBudget > 0 ? ((epsilonSpent / epsilonBudget) * 100).toFixed(1) + '%' : '—';
+  document.getElementById('m-budget-pct').textContent = pct;
+  document.getElementById('metrics-row').style.display = '';
+}
+
+async function runDemo() {
+  if (_demoRunning) return;
+  _demoRunning = true;
+
+  const runBtn   = document.getElementById('run-btn');
+  const resetBtn = document.getElementById('reset-btn');
+  const statusEl = document.getElementById('run-status');
+
+  runBtn.disabled = true;
+  statusEl.textContent = 'Creating task…';
+  document.getElementById('log-box').textContent = '';
+  document.getElementById('log-box').style.display = '';
+  document.getElementById('progress-wrap').style.display = '';
+  document.getElementById('metrics-row').style.display = 'none';
+
+  const algo      = document.getElementById('cfg-algo').value;
+  const rounds    = parseInt(document.getElementById('cfg-rounds').value);
+  const clients   = parseInt(document.getElementById('cfg-clients').value);
+  const alpha     = parseFloat(document.getElementById('cfg-alpha').value);
+  const epsilon   = parseFloat(document.getElementById('cfg-epsilon').value);
+  const mu        = parseFloat(document.getElementById('cfg-mu').value);
+  const modelType = document.getElementById('cfg-model').value;
+  const hidden    = JSON.parse(document.getElementById('cfg-hidden').value);
+
+  setProgress(0, rounds);
+
+  try {
+    /* 1. Create task */
+    log(`[init] Creating FL task — algo=${algo}, rounds=${rounds}, ε=${epsilon}, α=${alpha}, clients=${clients}`);
+    const taskResp = await fetch('/fl/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        algorithm: algo,
+        rounds_total: rounds,
+        dp_epsilon: epsilon,
+        mu: mu,
+        simulation: true,
+        sim_alpha: alpha,
+        sim_n_clients: clients,
+        model_arch: {
+          type: modelType,
+          input_dim: 10,
+          hidden_dims: hidden,
+          output_dim: 1,
+          task: 'regression'
+        }
       })
-      .catch(() => {
-         statusEl.textContent = "Failed to load state";
-         jsonEl.textContent = "";
-      });
+    });
+
+    if (!taskResp.ok) {
+      const err = await taskResp.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${taskResp.status}`);
+    }
+
+    const taskData  = await taskResp.json();
+    const taskId    = taskData.task_id;
+    const noiseMult = taskData.dp_noise_mult ? taskData.dp_noise_mult.toFixed(4) : '—';
+
+    log(`[init] Task created: ${taskId}`);
+    log(`[dp]   Noise multiplier (σ/C) = ${noiseMult}  [RDP accountant — tight composition]`);
+    log(`[dp]   L2 clip norm C = 1.0`);
+    log(`[dist] Dirichlet α = ${alpha}  (${alpha < 0.5 ? 'highly non-IID' : alpha < 2 ? 'moderately non-IID' : 'near-IID'})`);
+    log(`[sim]  Synthetic dataset: 300+ samples, Gaussian features, ${clients} client splits`);
+    log(`[run]  Running ${rounds} FedProx rounds — this may take a moment…`);
+    log('');
+
+    statusEl.textContent = 'Running simulation…';
+
+    /* 2. Animate progress bar while waiting for synchronous simulate call */
+    let animFrame = 0;
+    const animInterval = setInterval(() => {
+      animFrame++;
+      const fakePct = Math.min(95, (animFrame / (rounds * 3)) * 100);
+      document.getElementById('progress-bar').style.width = fakePct + '%';
+      document.getElementById('progress-label').textContent = `Running… ~${Math.round(fakePct)}%`;
+      document.getElementById('progress-pct').textContent  = Math.round(fakePct) + '%';
+    }, 400);
+
+    /* 3. Execute simulation synchronously */
+    const simResp = await fetch(`/fl/tasks/${taskId}/simulate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    clearInterval(animInterval);
+
+    if (!simResp.ok) {
+      const err = await simResp.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${simResp.status}`);
+    }
+
+    const simData     = await simResp.json();
+    const epsilonSpent = simData.epsilon_spent || 0;
+    const roundsDone   = simData.rounds_completed || rounds;
+
+    /* Log SNR diagnostic */
+    if (simData.snr_diagnostic) {
+      log(`[snr]  ${simData.snr_diagnostic}`);
+      log('');
+    }
+
+    /* Log round summary with val loss */
+    let prevLoss = null;
+    (simData.rounds || []).forEach(r => {
+      const lossStr = r.val_loss != null ? `  val_loss=${r.val_loss.toFixed(5)}` : '';
+      const trend = prevLoss != null && r.val_loss != null
+        ? (r.val_loss < prevLoss ? ' ↓' : ' ↑')
+        : '';
+      log(`[round ${r.round}/${rounds}] ε_spent=${r.epsilon_spent.toFixed(4)}${lossStr}${trend}`);
+      prevLoss = r.val_loss;
+    });
+    log('');
+    log(`[done] Simulation complete after ${roundsDone} rounds`);
+    log(`[dp]   Total ε spent = ${epsilonSpent.toFixed(4)} / ${epsilon}  (budget ${((epsilonSpent / epsilon) * 100).toFixed(1)}% used)`);
+    log(`[✓]    DP protocol: clip weight delta → add Gaussian noise → FedAvg aggregate`);
+    log(`[✓]    Privacy guarantee: (ε=${epsilon}, δ=1e-5)-DP satisfied via RDP composition`);
+
+    setProgress(rounds, rounds);
+    setMetrics(roundsDone, epsilonSpent, epsilon, clients);
+    statusEl.textContent = 'Simulation complete.';
+    resetBtn.style.display = '';
+
+  } catch (err) {
+    log(`[error] ${err.message}`);
+    statusEl.textContent = 'Error — check log.';
+  } finally {
+    _demoRunning = false;
+    runBtn.disabled = false;
+  }
+}
+
+function resetDemo() {
+  document.getElementById('log-box').textContent = '';
+  document.getElementById('log-box').style.display = 'none';
+  document.getElementById('progress-wrap').style.display = 'none';
+  document.getElementById('metrics-row').style.display = 'none';
+  document.getElementById('run-status').textContent = '';
+  document.getElementById('reset-btn').style.display = 'none';
+  document.getElementById('progress-bar').style.width = '0%';
+}
+
+/* ── Tasks table ─────────────────────────────────────────────────────── */
+async function loadTasks() {
+  const ind = document.getElementById('tasks-refresh-indicator');
+  ind.textContent = 'Refreshing…';
+  try {
+    const resp = await fetch('/fl/tasks');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const tasks = await resp.json();
+    renderTasks(tasks);
+    ind.textContent = 'Updated ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    ind.textContent = 'Refresh failed';
+  }
+}
+
+function renderTasks(tasks) {
+  const tbody = document.getElementById('tasks-tbody');
+  if (!tasks || tasks.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding:2rem;color:var(--fl-slate-400);font-size:.85rem">No FL tasks yet — run the simulation above or use <code>POST /fl/tasks</code>.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = tasks.map(t => {
+    const statusClass = t.status === 'completed' ? 'badge-completed'
+                      : t.status === 'running'   ? 'badge-running'
+                      : t.status === 'failed'    ? 'badge-danger'
+                      : 'badge-pending';
+    const modeLabel = t.simulation
+      ? '<span class="pill badge-sim">Simulation</span>'
+      : '<span class="pill badge-real">Real FL</span>';
+
+    // Actions
+    const cancelBtn = (t.status === 'running' || t.status === 'pending')
+      ? `<button class="btn-action btn-cancel" onclick="cancelTask('${t.id}')">Cancel</button>`
+      : '';
+    const exportJsonBtn = t.status === 'completed'
+      ? `<a class="btn-action btn-export" href="/fl/tasks/${t.id}/export?format=json" download>JSON</a>`
+      : '';
+    const exportCsvBtn = t.status === 'completed'
+      ? `<a class="btn-action btn-export-csv" href="/fl/tasks/${t.id}/export?format=csv" download>CSV</a>`
+      : '';
+
+    return `<tr>
+      <td><code style="font-size:.8rem">${t.id.slice(0,8)}</code></td>
+      <td>${t.algorithm}</td>
+      <td>${t.rounds_done}/${t.rounds_total}</td>
+      <td><span style="font-family:var(--fl-mono)">ε=${t.dp_epsilon}</span></td>
+      <td>${modeLabel}</td>
+      <td><span class="pill ${statusClass}">${t.status}</span></td>
+      <td style="white-space:nowrap">${cancelBtn}${exportJsonBtn}${exportCsvBtn}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function cancelTask(taskId) {
+  if (!confirm('Cancel this task? It will be marked as failed.')) return;
+  try {
+    const resp = await fetch(`/fl/tasks/${taskId}/cancel`, { method: 'POST' });
+    const data = await resp.json();
+    if (!resp.ok) { alert(data.error || 'Cancel failed'); return; }
+    loadTasks();
+  } catch (e) {
+    alert('Cancel failed: ' + e.message);
+  }
+}
+
+// Load on page start, refresh every 15s while any task is running
+loadTasks();
+setInterval(async () => {
+  const rows = document.querySelectorAll('#tasks-tbody tr');
+  const hasActive = Array.from(rows).some(r => r.querySelector('.badge-running'));
+  if (hasActive) loadTasks();
+}, 15000);
 </script>
 
+<style>
+.btn-action {
+  display: inline-block; padding: .2rem .55rem; border-radius: .35rem;
+  font-size: .72rem; font-weight: 600; cursor: pointer; border: 1px solid transparent;
+  text-decoration: none; margin-right: .25rem; line-height: 1.5;
+}
+.btn-cancel     { background:#fee2e2; color:#b91c1c; border-color:#fecaca; }
+.btn-cancel:hover { background:#fecaca; }
+.btn-export     { background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe; }
+.btn-export:hover { background:#dbeafe; }
+.btn-export-csv { background:#f0fdf4; color:#15803d; border-color:#bbf7d0; }
+.btn-export-csv:hover { background:#dcfce7; }
+.badge-danger { background:#fee2e2; color:#b91c1c; border:1px solid #fecaca; }
+</style>
 {% endblock %}

@@ -128,35 +128,25 @@ def compute_numeric_t_closeness(
     df: pd.DataFrame, quasi_cols: list, sensitive_col: str
 ) -> dict:
     """
-    Compute t-closeness for numeric sensitive attributes.
-    ---
-    parameters:
-      - name: df
-        in: body
-        type: DataFrame
-        required: true
-        description: Input dataset.
-      - name: quasi_cols
-        in: body
-        type: list
-        required: true
-        description: List of quasi-identifier columns.
-      - name: sensitive_col
-        in: body
-        type: string
-        required: true
-        description: The sensitive attribute to evaluate.
-    returns:
-      type: dict
-      description: Mapping of group key to t-closeness score.
+    Compute t-closeness for numeric sensitive attributes using Earth Mover's
+    Distance (EMD / Wasserstein-1) on the ordered value domain, as defined
+    by Li et al. (2007).
+
+    EMD = (1 / (m - 1)) * sum_i | CDF_group(r_i) - CDF_global(r_i) |
+
+    where r_1 < r_2 < ... < r_m are the globally sorted unique values and
+    the CDFs are evaluated at each rank position.
     """
     unique_vals = np.sort(df[sensitive_col].unique())
-    global_counts = (
+    m = len(unique_vals)
+
+    global_cdf = (
         df[sensitive_col]
         .value_counts(normalize=True)
-        .reindex(unique_vals, fill_value=0)
+        .reindex(unique_vals, fill_value=0.0)
+        .cumsum()
+        .values
     )
-    global_dist = global_counts.values
 
     partitions = compute_partition_by_ids(df, quasi_cols)
     group_t_scores = {}
@@ -165,13 +155,17 @@ def compute_numeric_t_closeness(
         subset = df.iloc[group]
         if subset.empty:
             continue
-        group_counts = (
+        group_cdf = (
             subset[sensitive_col]
             .value_counts(normalize=True)
-            .reindex(unique_vals, fill_value=0)
+            .reindex(unique_vals, fill_value=0.0)
+            .cumsum()
+            .values
         )
-        group_dist = group_counts.values
-        t_score = 0.5 * np.sum(np.abs(group_dist - global_dist))
+        if m > 1:
+            t_score = np.sum(np.abs(group_cdf - global_cdf)) / (m - 1)
+        else:
+            t_score = 0.0
 
         group_key = get_group_key_from_partition(df, group, quasi_cols)
         group_t_scores[group_key] = t_score

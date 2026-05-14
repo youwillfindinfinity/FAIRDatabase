@@ -5,6 +5,38 @@ from app import create_app, get_db
 from config import supabase_extension
 from dotenv import load_dotenv
 
+# ---------------------------------------------------------------------------
+# Detect whether Supabase / Postgres are actually reachable.
+# .env.test always sets SUPABASE_URL=http://localhost:8000 so we probe the
+# TCP socket rather than checking the env var value.
+# ---------------------------------------------------------------------------
+def _services_reachable() -> bool:
+    import socket, urllib.parse
+    load_dotenv(os.path.join(os.path.dirname(__file__), ".env.test"), override=False)
+    url = os.getenv("SUPABASE_URL", "")
+    if not url:
+        return False
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 443
+    try:
+        conn = socket.create_connection((host, port), timeout=2)
+        conn.close()
+        return True
+    except OSError:
+        return False
+
+
+# Cache the result once per test session.
+_SERVICES_UP: bool | None = None
+
+
+def _check_services() -> bool:
+    global _SERVICES_UP
+    if _SERVICES_UP is None:
+        _SERVICES_UP = _services_reachable()
+    return _SERVICES_UP
+
 
 TEST_EMAIL = "test_user_1@test.com"
 TEST_PASSWORD = "aBJ3%!fj0_f42h2pvw3"
@@ -50,6 +82,9 @@ def app():
     yielding the app, allowing tests to access the app and DB.
 
     """
+    if not _check_services():
+        pytest.skip("Supabase/Postgres not reachable — skipping integration test")
+
     load_dotenv(os.path.join(os.path.dirname(__file__), ".env.test"))
 
     path = os.path.join(os.path.dirname(__file__), "uploads")

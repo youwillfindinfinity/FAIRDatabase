@@ -48,17 +48,18 @@ def store_parameter_set(
     params: dict,
     created_by: str,
     owner_id: str | None = None,
+    source: str = "manual",
 ) -> int:
     """Insert a named parameter set and return its id."""
     cur = g.db.cursor()
     try:
         cur.execute(
             """
-            INSERT INTO _fd.pbpk_parameter_sets (name, description, params, created_by, owner_id)
-            VALUES (%s, %s, %s::jsonb, %s, %s)
+            INSERT INTO _fd.pbpk_parameter_sets (name, description, params, created_by, owner_id, source)
+            VALUES (%s, %s, %s::jsonb, %s, %s, %s)
             RETURNING id
             """,
-            (name, description, json.dumps(params), created_by, owner_id),
+            (name, description, json.dumps(params), created_by, owner_id, source),
         )
         row = cur.fetchone()
         g.db.commit()

@@ -4,6 +4,11 @@
 -- Create _fd schema
 CREATE SCHEMA IF NOT EXISTS _fd;
 
+-- Allow the Flask app user to create per-dataset tables in _fd.
+-- The schema is owned by supabase_admin (the migration runner) but the
+-- app connects as 'postgres', which needs CREATE to upload new datasets.
+GRANT CREATE ON SCHEMA _fd TO postgres;
+
 -- Create metadata_tables
 CREATE TABLE IF NOT EXISTS _fd.metadata_tables (
     id SERIAL PRIMARY KEY,
@@ -63,3 +68,7 @@ BEGIN
         RAISE NOTICE 'Migrated table: %', tbl.table_name;
     END LOOP;
 END $$;
+
+-- Add source column to pbpk_parameter_sets (tracks how the parameter set was created)
+ALTER TABLE _fd.pbpk_parameter_sets
+    ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
