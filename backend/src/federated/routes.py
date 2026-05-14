@@ -21,7 +21,7 @@ from src.federated.fl_privacy import compute_noise_multiplier, compute_epsilon_s
 from src.federated.crypto import decrypt_weights
 from src.federated.engine import (
     TabularMLP, get_flat_weights, set_flat_weights,
-    local_train_fedprox, fedprox_aggregate, dirichlet_partition,
+    local_train_fedprox, fedprox_aggregate, dirichlet_partition, eval_loss,
 )
 from src.federated import db as fl_db
 from src.privacy.helpers import clip_gradients, add_gaussian_noise_dp
@@ -102,6 +102,28 @@ def create_task():
     return jsonify({"task_id": task_id, "dp_noise_mult": noise_mult}), 201
 
 
+@routes.route("/tasks", methods=["GET"])
+@login_required()
+def list_tasks():
+    """Return all FL tasks as JSON (used by the UI to refresh the tasks table)."""
+    try:
+        with g.db.cursor() as cur:
+            cur.execute(
+                "SELECT id, status, algorithm, rounds_total, rounds_done, "
+                "dp_epsilon, simulation, created_at "
+                "FROM _fd.fl_tasks ORDER BY created_at DESC LIMIT 50"
+            )
+            cols = [d[0] for d in cur.description]
+            tasks = [dict(zip(cols, r)) for r in cur.fetchall()]
+        for t in tasks:
+            if t.get("created_at"):
+                t["created_at"] = str(t["created_at"])
+        return jsonify(tasks), 200
+    except Exception as exc:
+        g.db.rollback()
+        return jsonify({"error": str(exc)}), 500
+
+
 @routes.route("/tasks/<task_id>", methods=["GET"])
 @login_required()
 def get_task(task_id):
@@ -109,6 +131,90 @@ def get_task(task_id):
     if task is None:
         return jsonify({"error": "Task not found"}), 404
     return jsonify(task), 200
+
+
+@routes.route("/tasks/<task_id>/cancel", methods=["POST"])
+@login_required("admin", "curator")
+def cancel_task(task_id):
+    """Mark a stuck or unwanted task as cancelled (status → failed)."""
+    task = fl_db.get_task(g.db, task_id)
+    if task is None:
+        return jsonify({"error": "Task not found"}), 404
+    if task.get("status") == "completed":
+        return jsonify({"error": "Cannot cancel a completed task"}), 400
+    fl_db.set_task_status(g.db, task_id, "failed")
+    return jsonify({"task_id": task_id, "status": "failed"}), 200
+
+
+@routes.route("/tasks/<task_id>/export", methods=["GET"])
+@login_required()
+def export_task(task_id):
+    """
+    Export FL task results as JSON: task config + per-round epsilon log.
+    Weights are excluded (privacy hygiene — use export-params to store them).
+    """
+    import csv, io
+    task = fl_db.get_task(g.db, task_id)
+    if task is None:
+        return jsonify({"error": "Task not found"}), 404
+
+    rounds = fl_db.list_rounds(g.db, task_id)
+    for r in rounds:
+        r.pop("aggregated_weights", None)  # never expose raw weights
+
+    fmt = request.args.get("format", "json")
+    if fmt == "csv":
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["round_n", "status", "client_count", "epsilon_spent", "loss", "created_at"])
+        for r in rounds:
+            writer.writerow([
+                r.get("round_n"), r.get("status"), r.get("client_count"),
+                r.get("epsilon_spent"), r.get("loss"), r.get("created_at"),
+            ])
+        from flask import Response
+        return Response(
+            buf.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=fl_task_{task_id[:8]}_rounds.csv"},
+        )
+
+    # JSON export
+    export = {
+        "task_id": task_id,
+        "algorithm": task.get("algorithm"),
+        "rounds_total": task.get("rounds_total"),
+        "rounds_done": task.get("rounds_done"),
+        "dp_epsilon": task.get("dp_epsilon"),
+        "dp_delta": task.get("dp_delta"),
+        "dp_noise_mult": task.get("dp_noise_mult"),
+        "dp_clip_norm": task.get("dp_clip_norm"),
+        "mu": task.get("mu"),
+        "simulation": task.get("simulation"),
+        "sim_alpha": task.get("sim_alpha"),
+        "sim_n_clients": task.get("sim_n_clients"),
+        "model_arch": task.get("model_arch"),
+        "status": task.get("status"),
+        "created_at": str(task.get("created_at", "")),
+        "rounds": [
+            {
+                "round_n": r.get("round_n"),
+                "status": r.get("status"),
+                "client_count": r.get("client_count"),
+                "epsilon_spent": r.get("epsilon_spent"),
+                "loss": r.get("loss"),
+                "created_at": str(r.get("created_at", "")),
+            }
+            for r in rounds
+        ],
+    }
+    from flask import Response
+    import json as _json
+    return Response(
+        _json.dumps(export, indent=2),
+        mimetype="application/json",
+        headers={"Content-Disposition": f"attachment; filename=fl_task_{task_id[:8]}.json"},
+    )
 
 
 @routes.route("/tasks/<task_id>/rounds", methods=["GET"])
@@ -177,8 +283,8 @@ def submit_gradients(task_id, round_n):
     is_final = new_count >= clients_needed
 
     if is_final:
-        # Divide accumulated sum by client count to get average
-        aggregated = (acc / new_count).tolist()
+        # Divide accumulated sum by client count to get average; sanitize NaN/Inf for JSON
+        aggregated = np.nan_to_num(acc / new_count, nan=0.0, posinf=0.0, neginf=0.0).tolist()
         eps_spent = compute_epsilon_spent(
             noise_multiplier=noise_mult,
             delta=float(task["dp_delta"]),
@@ -217,6 +323,160 @@ def get_model(task_id):
     return jsonify({"task_id": task_id, "weights": weights}), 200
 
 
+@routes.route("/tasks/<task_id>/simulate", methods=["POST"])
+@login_required("admin", "curator")
+def run_simulation(task_id):
+    """
+    Execute all FL rounds in-process for simulation tasks.
+
+    Scientifically correct DP-FL protocol (McMahan et al. 2018):
+      1. Each client trains locally → produces updated weights w_i
+      2. Compute weight DELTA: Δ_i = w_i - w_global  (not w_i itself)
+      3. Clip the DELTA to L2 norm C:  Δ_clipped = Δ_i * min(1, C/||Δ_i||)
+         → This bounds client sensitivity to C, making the Gaussian mechanism valid
+      4. Add Gaussian noise to the clipped delta: Δ_noised = Δ_clipped + N(0, σ²I)
+         where σ = noise_mult * C
+      5. Aggregate noised deltas: Δ_agg = weighted_mean(Δ_noised_i)
+      6. Update global model: w_global ← w_global + Δ_agg
+
+    Clipping full weights (previous bug) does NOT bound client sensitivity — it
+    only shrinks large weight vectors to unit norm, destroying the model and
+    invalidating the RDP accountant's ε guarantee.
+
+    Dirichlet partition uses quantile-binned targets for continuous regression,
+    so α correctly controls IID/non-IID degree regardless of target type.
+    """
+    task = fl_db.get_task(g.db, task_id)
+    if task is None:
+        return jsonify({"error": "Task not found"}), 404
+    if not task.get("simulation"):
+        return jsonify({"error": "Task is not a simulation task"}), 400
+    if task.get("status") == "completed":
+        return jsonify({"error": "Task already completed"}), 400
+
+    arch       = task.get("model_arch") or {}
+    input_dim  = int(arch.get("input_dim", 10))
+    hidden     = arch.get("hidden_dims", [64, 32])
+    output_dim = int(arch.get("output_dim", 1))
+    ml_task    = arch.get("task", "regression")
+
+    n_clients  = int(task.get("sim_n_clients", 5))
+    alpha      = float(task.get("sim_alpha", 0.5))
+    rounds     = int(task.get("rounds_total", 10))
+    mu         = float(task.get("mu", 0.01))
+    clip_norm  = float(task.get("dp_clip_norm", 1.0))
+    noise_mult = float(task.get("dp_noise_mult") or 1.0)
+    dp_delta   = float(task.get("dp_delta", 1e-5))
+
+    # Synthetic dataset — large enough for signal to compete with DP noise.
+    # With noise_mult σ and clip_norm C, per-coordinate noise = σ*C/sqrt(n_params).
+    # With n_samples=1500, ~300 samples/client gives meaningful gradient updates.
+    rng = np.random.default_rng(42)
+    n_samples = max(n_clients * 300, 1500)
+    X = rng.standard_normal((n_samples, input_dim)).astype(np.float32)
+    true_w = rng.standard_normal(input_dim).astype(np.float32)
+    if ml_task == "regression":
+        y = (X @ true_w).astype(np.float32)
+    else:
+        y = rng.integers(0, max(output_dim, 2), n_samples).astype(np.float32)
+
+    # Hold out 20% for validation loss (global convergence monitor)
+    n_val = max(int(n_samples * 0.2), 50)
+    X_val, y_val = X[:n_val], y[:n_val]
+    X_train, y_train = X[n_val:], y[n_val:]
+
+    # Dirichlet partition on training set (quantile-bins continuous y)
+    partitions = dirichlet_partition(X_train, y_train, n_clients=n_clients, alpha=alpha)
+
+    n_params = sum(
+        np.prod(list(p.shape))
+        for p in TabularMLP(input_dim, hidden, output_dim, ml_task).parameters()
+    )
+    sigma = noise_mult * clip_norm
+    snr_note = (
+        f"σ={sigma:.3f}, C={clip_norm}, params={n_params}. "
+        f"Per-coord noise ≈ {sigma/np.sqrt(n_params):.4f} vs "
+        f"max per-coord delta ≈ {clip_norm/np.sqrt(n_params):.4f}. "
+        + ("SNR < 1 — increase ε for better convergence."
+           if sigma > clip_norm else "SNR ≥ 1 — good privacy-utility tradeoff.")
+    )
+
+    model = TabularMLP(input_dim=input_dim, hidden_dims=hidden,
+                       output_dim=output_dim, task=ml_task)
+    global_weights = get_flat_weights(model)
+
+    fl_db.set_task_status(g.db, task_id, "running")
+
+    round_results = []
+    for rnd in range(1, rounds + 1):
+        fl_db.create_round(g.db, task_id, rnd)
+
+        client_deltas = []
+        client_sizes  = []
+        for (px, py) in partitions:
+            if len(px) == 0:
+                continue
+            local_w, _ = local_train_fedprox(
+                model, global_weights, px, py,
+                epochs=5, lr=0.01, mu=mu, task=ml_task
+            )
+            # DP-FL: clip the WEIGHT DELTA, not the full weights.
+            # Bounding ||Δ||₂ ≤ C bounds how much any single client can move
+            # the global model — this is the sensitivity the Gaussian mechanism
+            # is calibrated to. Clipping full weights gives no such guarantee.
+            delta = local_w - global_weights
+            clipped_delta = clip_gradients(delta, clip_norm)
+            noised_delta  = add_gaussian_noise_dp(clipped_delta, noise_mult, clip_norm)
+            client_deltas.append(noised_delta)
+            client_sizes.append(len(px))
+
+        # Aggregate noised deltas and apply to global model
+        agg_delta    = fedprox_aggregate(client_deltas, client_sizes)
+        global_weights = global_weights + agg_delta
+
+        # Detect divergence — NaN/Inf means noise overwhelmed signal entirely
+        if np.any(np.isnan(global_weights)) or np.any(np.isinf(global_weights)):
+            fl_db.set_task_status(g.db, task_id, "failed")
+            return jsonify({
+                "error": (
+                    f"Model diverged at round {rnd}. "
+                    f"Noise multiplier {noise_mult:.2f} too large for this "
+                    f"ε/data combination. Increase ε or add more data."
+                ),
+                "snr_diagnostic": snr_note,
+            }), 422
+
+        # Compute validation loss on held-out set (global convergence monitor)
+        val_loss = eval_loss(model, global_weights, X_val, y_val, task=ml_task)
+
+        eps_spent = compute_epsilon_spent(
+            noise_multiplier=noise_mult, delta=dp_delta, rounds_done=rnd
+        )
+
+        fl_db.store_aggregated_weights(
+            g.db, task_id, rnd,
+            global_weights.tolist(), eps_spent, val_loss
+        )
+        fl_db.advance_task_round(g.db, task_id)
+        round_results.append({
+            "round": rnd,
+            "epsilon_spent": eps_spent,
+            "val_loss": val_loss,
+        })
+
+    fl_db.set_task_status(g.db, task_id, "completed")
+
+    total_eps = round_results[-1]["epsilon_spent"] if round_results else 0.0
+    return jsonify({
+        "task_id": task_id,
+        "rounds_completed": rounds,
+        "epsilon_spent": total_eps,
+        "status": "completed",
+        "snr_diagnostic": snr_note,
+        "rounds": round_results,
+    }), 200
+
+
 @routes.route("/tasks/<task_id>/export-params", methods=["POST"])
 @login_required("admin", "curator")
 def export_params(task_id):
@@ -251,11 +511,18 @@ def export_params(task_id):
 # ── Second registration point for /fl/ prefix ─────────────────────────────────
 
 fl_routes = Blueprint("fl_routes", __name__)
+fl_routes.add_url_rule("/tasks", view_func=list_tasks, methods=["GET"])
 fl_routes.add_url_rule("/tasks", view_func=create_task, methods=["POST"])
 fl_routes.add_url_rule("/tasks/<task_id>", view_func=get_task, methods=["GET"])
 fl_routes.add_url_rule("/tasks/<task_id>/rounds", view_func=list_rounds, methods=["GET"])
 fl_routes.add_url_rule("/tasks/<task_id>/rounds/<int:round_n>/gradients",
                         view_func=submit_gradients, methods=["POST"])
 fl_routes.add_url_rule("/tasks/<task_id>/model", view_func=get_model, methods=["GET"])
+fl_routes.add_url_rule("/tasks/<task_id>/simulate",
+                        view_func=run_simulation, methods=["POST"])
+fl_routes.add_url_rule("/tasks/<task_id>/cancel",
+                        view_func=cancel_task, methods=["POST"])
+fl_routes.add_url_rule("/tasks/<task_id>/export",
+                        view_func=export_task, methods=["GET"])
 fl_routes.add_url_rule("/tasks/<task_id>/export-params",
                         view_func=export_params, methods=["POST"])

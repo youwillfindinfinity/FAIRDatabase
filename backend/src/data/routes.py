@@ -1,6 +1,8 @@
 """Flask routes managing data generalization workflow and
    p29 score calculation with user authentication."""
 
+import os
+
 from flask import (
     session,
     request,
@@ -9,6 +11,8 @@ from flask import (
     Blueprint,
     url_for,
     abort,
+    flash,
+    send_file,
     g,
     jsonify,
 )
@@ -135,6 +139,32 @@ def consolidated_return():
     return redirect(url_for("data_generalization_routes.data_generalization"))
 
 
+@routes.route("/reset_generalization", methods=["GET"])
+@login_required("admin", "curator")
+def reset_generalization():
+    """
+    Clear all data-generalization session state so the user can upload a new dataset.
+    ---
+    tags:
+      - data-generalization
+    responses:
+      302:
+        description: Redirects to data_generalization with a clean session.
+    """
+    _keys = [
+        "uploaded", "columns_dropped", "missing_values_reviewed",
+        "quasi_identifiers_selected", "all_steps_completed",
+        "column_names", "columns_to_drop", "quasi_identifiers",
+        "quasi_identifier_values", "distinct_values",
+        "current_quasi_identifier", "current_quasi_identifier_index",
+        "mappings", "missing_percentages", "updated_percentages",
+        "uploaded_filepath",
+    ]
+    for k in _keys:
+        session.pop(k, None)
+    return redirect(url_for("data_generalization_routes.data_generalization"))
+
+
 @routes.route("/p29score", methods=["GET", "POST"])
 @login_required("admin", "curator", "accessor")
 def data_p29score():
@@ -158,6 +188,32 @@ def data_p29score():
             handler.handle_score_calculation()
 
     return render_template("/data/p29score.html", **handler.ctx)
+
+
+@routes.route("/download_generalized", methods=["GET"])
+@login_required("admin", "curator")
+def download_generalized():
+    """
+    Download the anonymised/generalised CSV dataset from the current session.
+    ---
+    tags:
+      - data-generalization
+    responses:
+      200:
+        description: Sends the anonymised CSV file as an attachment.
+      302:
+        description: Redirects back to data_generalization if no file is in session.
+    """
+    filepath = session.get("uploaded_filepath")
+    if not filepath or not os.path.exists(filepath):
+        flash("No anonymised dataset available for download.", "danger")
+        return redirect(url_for("data_generalization_routes.data_generalization"))
+    return send_file(
+        filepath,
+        as_attachment=True,
+        download_name="anonymized_dataset.csv",
+        mimetype="text/csv",
+    )
 
 
 @routes.route("/upload_metadata/<table_name>", methods=["GET", "POST"])

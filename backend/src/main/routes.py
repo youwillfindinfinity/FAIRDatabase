@@ -2,9 +2,14 @@
    on authentication."""
 
 
-from flask import Blueprint, session, render_template
+from flask import Blueprint, session, render_template, request
 
 routes = Blueprint("main_routes", __name__)
+
+
+@routes.route("/documentation")
+def documentation():
+    return render_template("/documentation/documentation.html", current_path=request.path), 200
 
 
 @routes.route("/")
