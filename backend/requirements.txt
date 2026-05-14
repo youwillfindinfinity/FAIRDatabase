@@ -14,3 +14,4 @@ python-libsbml>=5.20.4
 dp-accounting>=0.4.4
 torch>=2.11.0
 cryptography>=42.0.0
+pytest>=8.0
