@@ -74,7 +74,7 @@ class TestSimulationRoundTrip:
             for (px, py) in parts:
                 if len(px) == 0:
                     continue
-                local_w = local_train_fedprox(
+                local_w, _ = local_train_fedprox(
                     model, global_weights, px, py,
                     epochs=2, lr=0.01, mu=0.01, task="regression"
                 )

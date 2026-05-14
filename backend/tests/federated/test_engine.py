@@ -51,8 +51,8 @@ class TestFedProxLocalTrain:
         global_w = get_flat_weights(model)
         X = np.random.randn(20, 2).astype(np.float32)
         y = np.random.randn(20).astype(np.float32)
-        updated_w = local_train_fedprox(model, global_w, X, y,
-                                        epochs=5, lr=0.01, mu=0.01, task="regression")
+        updated_w, _ = local_train_fedprox(model, global_w, X, y,
+                                           epochs=5, lr=0.01, mu=0.01, task="regression")
         assert not np.allclose(updated_w, global_w)
 
     def test_output_shape_matches_input(self):
@@ -60,8 +60,8 @@ class TestFedProxLocalTrain:
         global_w = get_flat_weights(model)
         X = np.random.randn(10, 3).astype(np.float32)
         y = np.random.randn(10).astype(np.float32)
-        out = local_train_fedprox(model, global_w, X, y,
-                                  epochs=2, lr=0.01, mu=0.0, task="regression")
+        out, _ = local_train_fedprox(model, global_w, X, y,
+                                     epochs=2, lr=0.01, mu=0.0, task="regression")
         assert len(out) == len(global_w)
 
 

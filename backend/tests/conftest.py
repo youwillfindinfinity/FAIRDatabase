@@ -5,6 +5,21 @@ from app import create_app, get_db
 from config import supabase_extension
 from dotenv import load_dotenv
 
+# ---------------------------------------------------------------------------
+# Auto-skip integration tests when Supabase / Postgres are not available.
+# CI sets no SUPABASE_URL; local dev loads it from .env.test.
+# ---------------------------------------------------------------------------
+_INTEGRATION_FIXTURES = {"app", "client", "registered_user", "logged_in_user", "rollback"}
+
+def pytest_collection_modifyitems(items):
+    load_dotenv(os.path.join(os.path.dirname(__file__), ".env.test"), override=False)
+    if os.getenv("SUPABASE_URL"):
+        return  # services available — run everything
+    skip = pytest.mark.skip(reason="Supabase/Postgres not available in this environment")
+    for item in items:
+        if _INTEGRATION_FIXTURES & set(getattr(item, "fixturenames", [])):
+            item.add_marker(skip)
+
 
 TEST_EMAIL = "test_user_1@test.com"
 TEST_PASSWORD = "aBJ3%!fj0_f42h2pvw3"
