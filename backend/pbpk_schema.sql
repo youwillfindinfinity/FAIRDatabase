@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS _fd.pbpk_parameter_sets (
     model_id    TEXT NOT NULL DEFAULT 'lifetime_pbpk',
     params      JSONB NOT NULL,
     created_by  TEXT NOT NULL,
-    created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+    source      TEXT NOT NULL DEFAULT 'manual'
 );
 
 CREATE TABLE IF NOT EXISTS _fd.pbpk_simulation_runs (

@@ -101,12 +101,13 @@ def identify_quasi_identifiers_with_distinct_values(df, quasi_identifiers):
         description: Returns tuple of (distinct_values_dict, initial_mapping_dict).
     """
     distinct_values = {}
-    mappings = {}
+    qi_values = {}
     for col in quasi_identifiers:
         unique_values = df[col].dropna().astype(str).unique().tolist()
         distinct_values[col] = unique_values
-        mappings[col] = {}
-    return distinct_values, mappings
+        value_counts = df[col].astype(str).value_counts(normalize=True) * 100
+        qi_values[col] = list(value_counts.round(2).items())
+    return distinct_values, qi_values
 
 
 def map_values_and_output_percentages(df, columns, mappings):
@@ -144,5 +145,5 @@ def map_values_and_output_percentages(df, columns, mappings):
         mapping = mappings[col]
         df[col] = df[col].astype(str).map(mapping).fillna(df[col])
         value_counts = df[col].value_counts(normalize=True) * 100
-        result[col] = value_counts.round(2).to_dict()
+        result[col] = list(value_counts.round(2).items())
     return df, result

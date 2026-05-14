@@ -120,6 +120,13 @@ class DataGeneralizationHandler(BaseHandler):
         columns_to_drop = request.form.getlist("columns_to_drop")
 
         if not columns_to_drop:
+            updates = {
+                "columns_dropped": True,
+                "column_names": df.columns.tolist(),
+                "missing_percentages": calculate_missing_percentages(df),
+                "message": "No direct identifiers dropped. Proceeding to next step.",
+            }
+            self._update_session_and_context(updates)
             return
 
         if drop_columns(df, columns_to_drop):
@@ -145,6 +152,12 @@ class DataGeneralizationHandler(BaseHandler):
         columns_to_drop = request.form.getlist("columns_to_drop")
 
         if not columns_to_drop:
+            updates = {
+                "missing_values_reviewed": True,
+                "column_names": df.columns.tolist(),
+                "message": "No missing value columns dropped. Proceeding to next step.",
+            }
+            self._update_session_and_context(updates)
             return
 
         if drop_columns(df, columns_to_drop):
@@ -216,9 +229,10 @@ class DataGeneralizationHandler(BaseHandler):
         if current_qi not in mappings:
             mappings[current_qi] = {}
 
+        prefix = f"mapping_{current_qi}_"
         for key in request.form:
-            if key.startswith("mapping_"):
-                _, val = key.rsplit("_", 1)
+            if key.startswith(prefix):
+                val = key[len(prefix):]
                 mappings[current_qi][val] = request.form[key]
 
         df, updated = map_values_and_output_percentages(
@@ -326,17 +340,54 @@ class DataP29ScoreHandler(BaseHandler):
             )
             return
 
-        res = P_29_score(self.df, quasi_idents, sens_attr)
+        try:
+            res = P_29_score(self.df, quasi_idents, sens_attr)
+        except Exception as exc:
+            self._ctx["error"] = f"Score calculation failed: {exc}"
+            return
+
         p29, problems, reasons, k_anon, min_l, max_t, _ = res
+
+        # Guard against NaN/Inf from degenerate data before passing to template.
+        import math
+
+        def _safe_round(val, digits=1):
+            try:
+                f = float(val)
+                if not math.isfinite(f):
+                    return 0.0
+                result = round(f, digits)
+                # Normalize -0.0 → 0.0 so the template never renders "-0.0"
+                return result if result != 0.0 else 0.0
+            except (TypeError, ValueError):
+                return 0.0
+
+        # SVG gauge circumference for r=65 half-circle display (matches template placeholder)
+        _FULL_DASH = 408.69
+
+        def _dash(val):
+            """Map a [0, 1] score to a stroke-dasharray length."""
+            clamped = max(0.0, min(1.0, float(val) if math.isfinite(float(val)) else 0.0))
+            return round(clamped * _FULL_DASH, 2)
+
+        p29result = _safe_round(p29)
+        minlresult = _safe_round(min_l)
+        maxtresult = _safe_round(max_t)
+
         self._ctx.update(
             {
                 "result": res,
-                "p29result": round(p29, 1),
-                "minlresult": round(min_l, 1),
-                "maxtresult": round(float(max_t), 1),
-                "k_anonresult": k_anon,
+                "p29result": p29result,
+                "minlresult": minlresult,
+                "maxtresult": maxtresult,
+                "dashArrayp29": _dash(p29),
+                "dashArrayminl": _dash(min_l),
+                "dashArraymaxt": _dash(max_t),
+                "k_anonresult": int(k_anon) if k_anon == k_anon else 0,
                 "reason_result": list(reasons),
-                "problems_result": list(problems)[:10],
+                "problems_result": [
+                    f"{row}: {msg}" for row, msg in list(problems)[:10]
+                ],
                 "message": "p29 score calculated successfully.",
             }
         )

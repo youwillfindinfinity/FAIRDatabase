@@ -68,6 +68,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const activeCheckbox = document.getElementById('flexCheckActive');
     const nonActiveCheckbox = document.getElementById('flexCheckNonActive1');
 
+    if (!rowLimitSelect || !tableBody) return;
+
     let currentLimit = parseInt(rowLimitSelect.value);
 
     function updateVisibleRows(limit) {
@@ -111,6 +113,51 @@ document.addEventListener('DOMContentLoaded', function () {
         activeCheckbox.checked = false;
         nonActiveCheckbox.checked = false;
         window.location.href = '/search';
+    });
+
+    updateVisibleRows(currentLimit);
+});
+
+// Load more for search results table (uses distinct IDs to avoid conflict with dataset list)
+document.addEventListener('DOMContentLoaded', function () {
+    const rowLimitSelect = document.getElementById('rowLimitResults');
+    const tableBody = document.getElementById('tableBody');
+    const toggleRowsButton = document.getElementById('toggleRowsResults');
+
+    if (!rowLimitSelect || !tableBody || !toggleRowsButton) return;
+
+    let currentLimit = parseInt(rowLimitSelect.value);
+
+    function updateVisibleRows(limit) {
+        const rows = tableBody.querySelectorAll('tr');
+        rows.forEach((row, index) => {
+            row.classList.toggle('hidden-row', index >= limit);
+        });
+        currentLimit = limit;
+        toggleRowsButton.textContent = limit >= rows.length ? 'Collapse' : 'Load More';
+    }
+
+    rowLimitSelect.addEventListener('change', function () {
+        updateVisibleRows(parseInt(this.value));
+    });
+
+    toggleRowsButton.addEventListener('click', function (event) {
+        event.preventDefault();
+        const rows = tableBody.querySelectorAll('tr.hidden-row');
+        if (rows.length > 0) {
+            updateVisibleRows(currentLimit + 10);
+        } else {
+            updateVisibleRows(10);
+        }
+    });
+
+    toggleRowsButton.addEventListener('mouseenter', function () {
+        this.style.backgroundColor = '#70999C';
+        this.style.borderColor = '#1A4B4F';
+    });
+
+    toggleRowsButton.addEventListener('mouseleave', function () {
+        this.style.backgroundColor = '#1E5B5E';
     });
 
     updateVisibleRows(currentLimit);
@@ -167,6 +214,11 @@ function validateForm() {
 function uploadAndCloseForm() {
     var formData = new FormData($("#upload-form")[0]);
 
+    // Disable close controls while upload is in progress
+    $('#uploadModal .btn-close, #uploadModal .btn-cancel-custom').prop('disabled', true);
+    $('#uploadModal').data('bs.modal')._config.backdrop = 'static';
+    $('#uploadModal').data('bs.modal')._config.keyboard = false;
+
     $.ajax({
         url: '/dashboard/upload',
         type: 'POST',
@@ -179,7 +231,7 @@ function uploadAndCloseForm() {
                 if (evt.lengthComputable) {
                     var progress = Math.round((evt.loaded / evt.total) * 100);
                     $("#progress").css("width", progress + "%");
-                    $("#progress-message").text("Creating table:" + progress + "% . Waiting to finalize...");
+                    $("#progress-message").text("Creating table: " + progress + "% — waiting to finalize...");
                 }
             }, false);
             return xhr;
@@ -187,6 +239,7 @@ function uploadAndCloseForm() {
         success: function (response) {
             $("#progress-message").text(response.message || "File uploaded successfully.");
             $("#progress").removeClass("bg-danger").addClass("bg-success");
+            $('#uploadModal .btn-close, #uploadModal .btn-cancel-custom').prop('disabled', false);
         },
         error: function (xhr) {
             var msg = "Error uploading file.";
@@ -195,6 +248,7 @@ function uploadAndCloseForm() {
             }
             $("#progress-message").text(msg);
             $("#progress").removeClass("bg-success").addClass("bg-danger");
+            $('#uploadModal .btn-close, #uploadModal .btn-cancel-custom').prop('disabled', false);
         }
     });
 }
@@ -310,13 +364,15 @@ const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstra
 
 // P29 score indicator
 document.addEventListener('DOMContentLoaded', function () {
-    const p29score = parseFloat(document.getElementById('p29result').getAttribute('data-p29result'));
+    const p29el = document.getElementById('p29result');
+    if (!p29el) return;
+    const p29score = parseFloat(p29el.getAttribute('data-p29result'));
     const radiusp29 = 65;
     const dashArrayp29 = Math.PI * radiusp29 * p29score;
 
     // Update the dasharray attribute of the score-circle SVG
     const scoreCirclep29 = document.querySelector('.score-circle-p29 svg circle');
-    scoreCirclep29.setAttribute('stroke-dasharray', `${dashArrayp29} 10000`);
+    if (scoreCirclep29) scoreCirclep29.setAttribute('stroke-dasharray', `${dashArrayp29} 10000`);
 
     // Determine score range and display message
     let message = '';
@@ -336,18 +392,20 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Display the message on the page
     const scoreMessageDivp29 = document.getElementById('scoreMessage-p29');
-    scoreMessageDivp29.textContent = message;
+    if (scoreMessageDivp29) scoreMessageDivp29.textContent = message;
 });
 
 // Min L score indicator
 document.addEventListener('DOMContentLoaded', function () {
-    const minLScore = parseFloat(document.getElementById('minlresult').getAttribute('data-minl-result'));
+    const minlel = document.getElementById('minlresult');
+    if (!minlel) return;
+    const minLScore = parseFloat(minlel.getAttribute('data-minl-result'));
     const radiusminl = 65;
     const dashArrayminl = Math.PI * radiusminl * minLScore;
 
     // Update the dasharray attribute of the score-circle SVG
     const scoreCircleminl = document.querySelector('.score-circle-minl svg circle');
-    scoreCircleminl.setAttribute('stroke-dasharray', `${dashArrayminl} 10000`);
+    if (scoreCircleminl) scoreCircleminl.setAttribute('stroke-dasharray', `${dashArrayminl} 10000`);
 
     // Determine score range and display message
     let message = '';
@@ -367,19 +425,20 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Display the message on the page
     const scoreMessageDivminl = document.getElementById('scoreMessage-minl');
-    scoreMessageDivminl.textContent = message;
+    if (scoreMessageDivminl) scoreMessageDivminl.textContent = message;
 });
 
 // Max T score indicator
 document.addEventListener('DOMContentLoaded', function () {
-    const maxtscoreString = document.getElementById('maxtresult').getAttribute('data-maxt-result');
-    const maxtscore = parseFloat(maxtscoreString);
+    const maxtel = document.getElementById('maxtresult');
+    if (!maxtel) return;
+    const maxtscore = parseFloat(maxtel.getAttribute('data-maxt-result'));
     const radiusmaxt = 65;
     const dashArraymaxt = Math.PI * radiusmaxt * maxtscore;
 
     // Update the dasharray attribute of the score-circle SVG
     const scoreCirclemaxt = document.querySelector('.score-circle-maxt svg circle');
-    scoreCirclemaxt.setAttribute('stroke-dasharray', `${dashArraymaxt} 10000`);
+    if (scoreCirclemaxt) scoreCirclemaxt.setAttribute('stroke-dasharray', `${dashArraymaxt} 10000`);
 
     // Determine score range and display message
     let message = '';
@@ -399,29 +458,31 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Display the message on the page
     const scoreMessageDivmaxt = document.getElementById('scoreMessage-maxt');
-    scoreMessageDivmaxt.textContent = message;
+    if (scoreMessageDivmaxt) scoreMessageDivmaxt.textContent = message;
 });
 
 // k-anonymity message
 document.addEventListener('DOMContentLoaded', function () {
-    const k_anonResult = document.getElementById('k_anonresult').getAttribute('data-k-anon-result');
+    const kanel = document.getElementById('k_anonresult');
+    if (!kanel) return;
+    const k_anonResult = parseFloat(kanel.getAttribute('data-k-anon-result'));
     // Determine score range and display message
     let message = '';
-    if (k_anonResult == 0) {
-        message = '<placeholder for 0>';
-    } else if (k_anonResult > 0 && k_anonResult < 50) {
-        message = '<placeholder for 1-50>';
-    } else if (k_anonResult >= 50 && k_anonResult < 100) {
-        message = '<placeholder 50-100>';
-    } else if (k_anonResult > 100) {
-        message = '<placeholder > 100>';
+    if (k_anonResult === 0) {
+        message = 'No anonymity — each record is unique. Privacy processing is required.';
+    } else if (k_anonResult > 0 && k_anonResult < 5) {
+        message = 'Very low k-anonymity. Each individual is distinguishable among fewer than 5 others.';
+    } else if (k_anonResult >= 5 && k_anonResult < 20) {
+        message = 'Moderate k-anonymity. Consider further generalization for sensitive data.';
+    } else if (k_anonResult >= 20) {
+        message = 'Good k-anonymity. Each record is indistinguishable among at least 20 others.';
     } else {
         message = 'Invalid score range.';
     }
 
     // Display the message on the page
     const scoreMessageDivkanon = document.getElementById('scoreMessage-kanon');
-    scoreMessageDivkanon.textContent = message;
+    if (scoreMessageDivkanon) scoreMessageDivkanon.textContent = message;
 });
 
 
@@ -431,6 +492,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var countDisplay = document.getElementById('selected-count');
     var messageDisplay = document.getElementById('selection-message');
 
+    if (!countDisplay || !messageDisplay) return;
 
     function updateSelectedCount() {
         var selectedCount = 0;
@@ -440,41 +502,6 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
         countDisplay.textContent = selectedCount + ' checkboxes selected';
-
-
-        // Conditional message based on selected count
-        if (selectedCount === 0) {
-            messageDisplay.textContent = 'Do you want to continue? You have no checkboxes selected.';
-        } else if (selectedCount === 1) {
-            messageDisplay.textContent = 'Do you want to remove ' + selectedCount + ' column? This action cannot be undone.';
-        } else {
-            messageDisplay.textContent = 'Do you want to remove ' + selectedCount + ' columns? This action cannot be undone.';
-        }
-    }
-
-    checkboxes.forEach(function (checkbox) {
-        checkbox.addEventListener('change', updateSelectedCount);
-    });
-
-    // Initial count display
-    updateSelectedCount();
-});
-
-document.addEventListener('DOMContentLoaded', function () {
-    var checkboxes = document.querySelectorAll('input[type="checkbox"][name="columns_to_drop"]');
-    var countDisplay = document.getElementById('selected-count');
-    var messageDisplay = document.getElementById('selection-message');
-
-
-    function updateSelectedCount() {
-        var selectedCount = 0;
-        checkboxes.forEach(function (checkbox) {
-            if (checkbox.checked) {
-                selectedCount++;
-            }
-        });
-        countDisplay.textContent = selectedCount + ' checkboxes selected';
-
 
         // Conditional message based on selected count
         if (selectedCount === 0) {

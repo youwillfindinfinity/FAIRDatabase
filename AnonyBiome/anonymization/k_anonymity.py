@@ -1,6 +1,6 @@
 import pandas as pd
 
-from .utils.helpers import compute_partition_by_ids, get_group_key
+from .utils.helpers import compute_partition_by_ids, get_group_key_from_partition
 
 
 def k_anonymity_for_sensitive_attr(
@@ -27,7 +27,7 @@ def k_anonymity_for_sensitive_attr(
 
     for group in partitions:
         subset = data.iloc[group]
-        group_key = get_group_key(subset.iloc[0], quasi_idents)
+        group_key = get_group_key_from_partition(data, group, quasi_idents)
         group_k_scores[group_key] = len(subset)
 
     return pd.DataFrame.from_dict(
