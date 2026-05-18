@@ -607,6 +607,9 @@ services:
       SUPABASE_KEY: ${ANON_KEY}
       SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
 
+      # Auto-promoted to admin on every Flask boot (_bootstrap_admin)
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+
       # Federated learning service (running on host machine)
       FED_API_BASE: http://host.docker.internal:7070
 

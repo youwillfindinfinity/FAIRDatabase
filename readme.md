@@ -89,6 +89,8 @@ There is no default user account. You must register before you can log in:
 
 `ENABLE_EMAIL_AUTOCONFIRM=true` is set by default so no email verification is required.
 
+> **Admin promotion:** `_bootstrap_admin` only runs at Flask startup, so a user set in `ADMIN_EMAIL` is promoted to `admin` on the *next* boot after they register. After registering that account, run `docker compose restart flask-app` once. Full order: set `ADMIN_EMAIL` → `up` → register that email → `docker compose restart flask-app`.
+
 ---
 
 ### Option B: Manual Setup (Set Your Own Passwords)
@@ -141,6 +143,8 @@ There is no default user account. You must register before you can log in:
 2. You will be redirected to **http://localhost:5000/auth/login** — use the same credentials to log in.
 
 `ENABLE_EMAIL_AUTOCONFIRM=true` is set by default so no email verification is required.
+
+> **Admin promotion:** `_bootstrap_admin` only runs at Flask startup, so a user set in `ADMIN_EMAIL` is promoted to `admin` on the *next* boot after they register. After registering that account, run `docker compose restart flask-app` once. Full order: set `ADMIN_EMAIL` → `up` → register that email → `docker compose restart flask-app`.
 
 ---
 
