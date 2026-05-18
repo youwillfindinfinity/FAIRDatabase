@@ -98,6 +98,8 @@ services:
       db:
         # Disable this if you are using an external Postgres database
         condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
       # analytics:
       #   condition: service_healthy
     environment:
@@ -168,6 +170,8 @@ services:
       db:
         # Disable this if you are using an external Postgres database
         condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
       # analytics:
       #   condition: service_healthy
     environment:
@@ -192,6 +196,8 @@ services:
       db:
         # Disable this if you are using an external Postgres database
         condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
       # analytics:
       #   condition: service_healthy
     healthcheck:
@@ -252,6 +258,8 @@ services:
       db:
         # Disable this if you are using an external Postgres database
         condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
       rest:
         condition: service_started
       imgproxy:
@@ -302,6 +310,8 @@ services:
       db:
         # Disable this if you are using an external Postgres database
         condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
       # analytics:
       #   condition: service_healthy
     environment:
@@ -507,6 +517,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
       # analytics:
       #   condition: service_healthy
     environment:
@@ -532,6 +544,35 @@ services:
         "-c",
         "/app/bin/migrate && /app/bin/supavisor eval \"$$(cat /etc/pooler/pooler.exs)\" && /app/bin/server"
       ]
+
+  # One-shot idempotent repair of Supabase platform internals that the
+  # supabase/postgres image only sets up on FIRST DB init
+  # (docker-entrypoint-initdb.d). On an existing/migrated volume these are
+  # missing and crash-loop realtime / auth / supavisor. This runs every
+  # `up`, exits 0, and the dependent services wait for it to complete.
+  # NOTE: connects as the `postgres` superuser over TCP, so POSTGRES_PASSWORD
+  # must match the volume's postgres password (kept stable by the idempotent
+  # bootstrap.sh). A volume whose postgres password already drifted needs the
+  # manual repair documented in readme.md before this can run.
+  db-init:
+    container_name: supabase-db-init
+    image: supabase/postgres:15.8.1.044
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./volumes/db:/init:ro
+    environment:
+      PGHOST: db
+      PGPORT: ${POSTGRES_PORT}
+      PGUSER: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # The script is a generated file (volumes/db/db-init.sh), NOT inline, so
+    # Docker Compose does not $-interpolate the shell/SQL ($f, PL/pgSQL $$).
+    entrypoint: ["/bin/bash", "/init/db-init.sh"]
 
 volumes:
   db-config:
