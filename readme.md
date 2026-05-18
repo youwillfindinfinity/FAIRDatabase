@@ -9,21 +9,14 @@ Steps to set up and use the Microbiome FAIR Database locally.
 - [Quick Start (Docker)](#quick-start-docker)
   - [Option A: Fully Automatic Setup](#option-a-fully-automatic-setup-zero-config)
     - [Step 1 — Generate config automatically](#step-1--generate-config-automatically)
-    - [Step 2 — Start Docker services](#step-2--start-docker-services)
-    - [Step 3 — Fix .env for local Flask](#step-3--fix-env-for-local-flask)
-    - [Step 4 — Create Python virtual environment](#step-4--create-python-virtual-environment)
-    - [Step 5 — Install dependencies](#step-5--install-dependencies)
-    - [Step 6 — Start Flask](#step-6--start-flask)
-    - [Step 7 — Register and log in](#step-7--register-and-log-in)
+    - [Step 2 — Start the stack](#step-2--start-the-stack)
+    - [Step 3 — Register and log in](#step-3--register-and-log-in)
   - [Option B: Manual Setup (Set Your Own Passwords)](#option-b-manual-setup-set-your-own-passwords)
     - [Step 1 — Create the environment file](#step-1--create-the-environment-file)
     - [Step 2 — Set your passwords](#step-2--set-your-passwords)
-    - [Step 3 — Bootstrap and start Docker services](#step-3--bootstrap-and-start-docker-services)
-    - [Step 4 — Fix .env for local Flask](#step-4--fix-env-for-local-flask)
-    - [Step 5 — Create Python virtual environment](#step-5--create-python-virtual-environment)
-    - [Step 6 — Install dependencies](#step-6--install-dependencies)
-    - [Step 7 — Start Flask](#step-7--start-flask)
-    - [Step 8 — Register and log in](#step-8--register-and-log-in)
+    - [Step 3 — Bootstrap and start the stack](#step-3--bootstrap-and-start-the-stack)
+    - [Step 4 — Register and log in](#step-4--register-and-log-in)
+  - [Optional: run Flask on the host (for development)](#optional-run-flask-on-the-host-for-development)
   - [Access the Application](#access-the-application)
   - [Stopping and Resetting](#stopping-and-resetting)
   - [Database schemas](#database-schemas)
@@ -54,6 +47,8 @@ Requires only [Docker](https://docs.docker.com/get-docker/) installed. Choose on
 
 ---
 
+> The Flask app runs **in a container** (`fairdatabase-flask`, defined in `docker-compose.override.yml`, auto-merged by `docker compose`). `docker compose up -d` starts the whole stack — Supabase **and** the app. You do **not** create a venv or run `./run.sh` for normal use; that is only for host-based development (see [Optional: run Flask on the host](#optional-run-flask-on-the-host-for-development)).
+
 ### Option A: Fully Automatic Setup (Zero Config)
 
 #### Step 1 — Generate config automatically
@@ -64,55 +59,28 @@ bash scripts/bootstrap.sh --auto
 
 > The generated passwords (including the Supabase Studio dashboard password) are printed to your terminal. Save them.
 
-#### Step 2 — Start Docker services
+> **Admin user:** `--auto` cannot guess who the admin is, so it leaves `ADMIN_EMAIL=` blank (it prints a `[WARN]`). To get an auto-promoted admin, set `ADMIN_EMAIL=<your-email>` in `backend/.env` after this step, then (re)start the stack. `_bootstrap_admin` promotes that account to `admin` on every boot, and the value is preserved across future `bootstrap.sh` re-runs — so you set it once. Without it, assign roles manually via `/admin/users`.
+
+#### Step 2 — Start the stack
 
 ```bash
 cd backend
 docker compose up -d
 ```
 
-Wait ~30 seconds for all services to become healthy. You can check with:
+Wait ~30 seconds for services to become healthy:
 
 ```bash
 docker compose ps
 ```
 
-All key services (`supabase-auth`, `supabase-kong`, `supabase-db`) should show `(healthy)`.
+All key services (`supabase-auth`, `supabase-kong`, `supabase-db`, `fairdatabase-flask`) should show `(healthy)`.
 
-#### Step 3 — Fix .env for local Flask
+> `supabase-db-init` is a one-shot setup container — it will show `Exited (0)` once finished. That is expected, not a failure.
 
-`bootstrap.sh` writes Docker-internal hostnames into `backend/.env` that only work inside the Docker network. Before running Flask on your machine, change these three values in `backend/.env`:
+> No `.env` host-edit step is needed: the container reaches the database and Supabase by Docker service name (`db`, `kong`), set in the override's `environment:` block, which takes precedence over `backend/.env`.
 
-```
-POSTGRES_HOST=127.0.0.1
-POSTGRES_PORT=5433
-SUPABASE_URL=http://localhost:8000
-```
-
-> **Important:** You must repeat this step every time you re-run `bootstrap.sh`, as it overwrites these values. If you skip it, login will fail.
-
-#### Step 4 — Create Python virtual environment
-
-```bash
-# Run from the backend/ directory
-python3 -m venv venv
-source venv/bin/activate
-```
-
-#### Step 5 — Install dependencies
-
-```bash
-# Must be run from backend/ with the venv activated
-pip install -r requirements.txt
-```
-
-#### Step 6 — Start Flask
-
-```bash
-./run.sh
-```
-
-#### Step 7 — Register and log in
+#### Step 3 — Register and log in
 
 There is no default user account. You must register before you can log in:
 
@@ -140,13 +108,13 @@ Open `backend/.env` and change these three variables from `change-me` to values 
 - `SECRET_KEY` — Secret key for Flask session security. Use a long random string.
 
 **Optional variables (leave as defaults unless needed):**
-- `ADMIN_EMAIL` — Email address to auto-promote to admin role on every Flask boot. Leave empty to disable auto-promotion (manual role assignment via `/admin/users`).
+- `ADMIN_EMAIL` — Email auto-promoted to `admin` on every boot. Set it now and it is preserved across `bootstrap.sh` re-runs. Leave empty to disable auto-promotion (assign roles manually via `/admin/users`).
 - `SITE_URL` — Where the app runs (default: `http://localhost:5000`).
 - `SMTP_*` — Email server settings. Leave blank if you don't need email sending.
 - `DISABLE_SIGNUP` — Set to `true` to prevent new user registrations.
 - `ENABLE_EMAIL_AUTOCONFIRM` — Set to `true` so new users skip email verification (recommended for local testing).
 
-#### Step 3 — Bootstrap and start Docker services
+#### Step 3 — Bootstrap and start the stack
 
 ```bash
 bash scripts/bootstrap.sh
@@ -155,48 +123,17 @@ cd backend
 docker compose up -d
 ```
 
-Wait ~30 seconds for all services to become healthy:
+Wait ~30 seconds for services to become healthy:
 
 ```bash
 docker compose ps
 ```
 
-All key services (`supabase-auth`, `supabase-kong`, `supabase-db`) should show `(healthy)`.
+All key services (`supabase-auth`, `supabase-kong`, `supabase-db`, `fairdatabase-flask`) should show `(healthy)`.
 
-#### Step 4 — Fix .env for local Flask
+> `supabase-db-init` is a one-shot setup container — it will show `Exited (0)` once finished. That is expected, not a failure.
 
-`bootstrap.sh` writes Docker-internal hostnames into `backend/.env` that only work inside the Docker network. Before running Flask on your machine, change these three values in `backend/.env`:
-
-```
-POSTGRES_HOST=127.0.0.1
-POSTGRES_PORT=5433
-SUPABASE_URL=http://localhost:8000
-```
-
-> **Important:** You must repeat this step every time you re-run `bootstrap.sh`, as it overwrites these values. If you skip it, login will fail.
-
-#### Step 5 — Create Python virtual environment
-
-```bash
-# Run from the backend/ directory
-python3 -m venv venv
-source venv/bin/activate
-```
-
-#### Step 6 — Install dependencies
-
-```bash
-# Must be run from backend/ with the venv activated
-pip install -r requirements.txt
-```
-
-#### Step 7 — Start Flask
-
-```bash
-./run.sh
-```
-
-#### Step 8 — Register and log in
+#### Step 4 — Register and log in
 
 There is no default user account. You must register before you can log in:
 
@@ -204,6 +141,36 @@ There is no default user account. You must register before you can log in:
 2. You will be redirected to **http://localhost:5000/auth/login** — use the same credentials to log in.
 
 `ENABLE_EMAIL_AUTOCONFIRM=true` is set by default so no email verification is required.
+
+---
+
+### Optional: run Flask on the host (for development)
+
+Only needed for active app development (live reload, debugger) — **not** for normal use, where Flask runs in the `fairdatabase-flask` container.
+
+To avoid two Flask instances fighting over port `5000`, run the Supabase stack **without** the app container:
+
+```bash
+cd backend
+docker compose up -d --scale flask-app=0     # Supabase + db-init only
+```
+
+Then point host Flask at the published ports — change these three values in `backend/.env` (re-apply after every `bootstrap.sh` run, which overwrites them):
+
+```
+POSTGRES_HOST=127.0.0.1
+POSTGRES_PORT=5433
+SUPABASE_URL=http://localhost:8000
+```
+
+And run the app from `backend/`:
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+./run.sh
+```
 
 ---
 
@@ -271,6 +238,29 @@ The `/model/runs/<run_id>/artifacts` endpoints accept binary outputs (jpg, png, 
 **`ImportError: libexpat.so.1: cannot open shared object file`** when the `flask-app` container starts.
 
 The PBPK simulation module (`PBKFAIRModel/`) depends on `python-libsbml`, which is a Python wrapper around a C library that links against `libexpat`. The base `python:3.10-slim` image does not include it. The Dockerfile installs it via `apt-get install libexpat1`. If you ever swap the base image or strip apt packages, libsbml will fail to import and `flask-app` will enter a restart loop. The full set of system libs required by the image is: `libpq5` (psycopg2), `libexpat1` (libsbml), `postgresql-client` (entrypoint migrations), `curl` (healthcheck). If you add scientific Python packages later (e.g. cvxpy, hdf5-based libs), expect to extend this list — check the import error for the missing `.so` and add the matching debian package.
+
+**Supabase services crash-loop on an existing/migrated DB volume** (`supabase-pooler`, `realtime`, or `auth` restarting; logs show `28P01 password authentication failed`, `3D000 database "_supabase" does not exist`, `3F000 schema "_supavisor"/"_realtime" does not exist`, or `42501 must be owner of function uid`).
+
+Root cause: the `supabase/postgres` image only runs the SQL in `docker-entrypoint-initdb.d` on **first** DB init. On a pre-existing volume those internals are never (re)applied. This is now handled automatically by the **`db-init`** one-shot service in `docker-compose.yml`: it runs on every `up` *before* realtime/auth/supavisor/flask (`depends_on: service_completed_successfully`) and idempotently re-syncs internal role passwords, creates the `_supabase` database, the `_supavisor`/`_realtime` schemas, and repairs `auth` ownership. If you still see these errors:
+
+- Confirm `db-init` exited 0: `docker compose logs supabase-db-init`.
+- If `roles.sql` warns about auth failure, the volume's **`postgres`** superuser password itself drifted from `POSTGRES_PASSWORD` (db-init connects over TCP and cannot self-heal that one). Manual repair, run inside the DB container which trusts the local socket:
+  ```bash
+  docker exec -it supabase-db psql -U postgres -c \
+    "ALTER USER postgres WITH PASSWORD '<value of POSTGRES_PASSWORD in backend/.env>';"
+  docker compose up -d   # db-init then fixes the remaining roles
+  ```
+- Never re-run `bootstrap.sh --auto` / `--rotate-secrets` against a volume that has data — it refuses by design (it would desync `JWT_SECRET`/`VAULT_ENC_KEY`). To intentionally start clean, delete `backend/volumes/db/data` first (**destroys all data**).
+
+**Editing a bind-mounted file then `docker restart`ing fails on WSL2** with `mount ... no such file or directory` (e.g. after editing `volumes/pooler/pooler.exs` or any `volumes/db/*`).
+
+Docker Desktop's WSL2 backend caches the inode of bind-mounted files; editing one (especially from the Windows side or via an editor that replaces rather than truncates) invalidates the reference. `docker restart <svc>` then cannot re-establish the mount. **Recreate, do not restart:**
+
+```bash
+docker compose up -d --force-recreate --no-deps <service>
+```
+
+If the Docker CLI itself hangs (`docker ps`/`docker info` time out — a separate WSL2 wedge, often triggered by a stuck `docker exec` against a missing database), restart Docker Desktop from Windows; running containers and the DB volume are unaffected.
 
 ---
 

@@ -20,8 +20,23 @@ VOLUMES_DIR="$BACKEND_DIR/volumes"
 ENV_FILE="$BACKEND_DIR/.env"
 AUTO_MODE=false
 
-if [[ "${1:-}" == "--auto" ]]; then
-    AUTO_MODE=true
+ROTATE_SECRETS=false
+
+for arg in "$@"; do
+    case "$arg" in
+        --auto) AUTO_MODE=true ;;
+        --rotate-secrets) ROTATE_SECRETS=true ;;
+    esac
+done
+
+# An existing populated Postgres data volume means the internal Supabase
+# roles already have passwords derived from the *original* secrets. Blindly
+# regenerating JWT_SECRET / VAULT_ENC_KEY / keys here would desync the stack
+# (Supavisor vault, issued JWTs) and crash-loop services on next `up`.
+DB_DATA_DIR="$BACKEND_DIR/volumes/db/data"
+DB_VOLUME_EXISTS=false
+if [[ -f "$DB_DATA_DIR/PG_VERSION" ]]; then
+    DB_VOLUME_EXISTS=true
 fi
 
 # --- Helper functions ---
@@ -80,6 +95,7 @@ if [[ "$AUTO_MODE" == true ]]; then
     DISABLE_SIGNUP="false"
     ENABLE_EMAIL_AUTOCONFIRM="true"
     FED_API_BASE="http://host.docker.internal:7070"
+    ADMIN_EMAIL=""
 elif [[ -f "$ENV_FILE" ]]; then
     echo "[READ] Reading admin passwords from $ENV_FILE ..."
 
@@ -96,6 +112,10 @@ elif [[ -f "$ENV_FILE" ]]; then
     DISABLE_SIGNUP=$(read_env_var "DISABLE_SIGNUP")
     ENABLE_EMAIL_AUTOCONFIRM=$(read_env_var "ENABLE_EMAIL_AUTOCONFIRM")
     FED_API_BASE=$(read_env_var "FED_API_BASE")
+    # Required by _bootstrap_admin on every Flask boot to (re)promote the
+    # admin user. Must be preserved across re-runs or the admin silently
+    # loses their role.
+    ADMIN_EMAIL=$(read_env_var "ADMIN_EMAIL")
 
     # Validate required passwords are set
     if [[ -z "$POSTGRES_PASSWORD" || -z "$DASHBOARD_PASSWORD" || -z "$FLASK_SECRET_KEY" ]]; then
@@ -128,20 +148,59 @@ else
     exit 1
 fi
 
-# --- Step 2: Auto-generate derived secrets ---
+# --- Step 2: Derive secrets (idempotent) ---
+#
+# These are preserved across re-runs by reading them back from .env, exactly
+# like POSTGRES_PASSWORD. Regenerating them against an existing DB volume
+# desyncs the Supavisor vault and invalidates issued JWTs, which crash-loops
+# Supabase services. Pass --rotate-secrets to force fresh values (only safe
+# on a fresh volume, or paired with the documented repair path).
 
-echo "[GENERATE] Creating derived secrets ..."
+JWT_SECRET=$(read_env_var "JWT_SECRET")
+SECRET_KEY_BASE=$(read_env_var "SECRET_KEY_BASE")
+VAULT_ENC_KEY=$(read_env_var "VAULT_ENC_KEY")
+ANON_KEY=$(read_env_var "ANON_KEY")
+SERVICE_ROLE_KEY=$(read_env_var "SERVICE_ROLE_KEY")
 
-JWT_SECRET=$(generate_password)$(generate_password)
-SECRET_KEY_BASE=$(generate_password)$(generate_password)
-VAULT_ENC_KEY=$(generate_password | head -c 32)
+HAVE_ALL_SECRETS=true
+for s in "$JWT_SECRET" "$SECRET_KEY_BASE" "$VAULT_ENC_KEY" "$ANON_KEY" "$SERVICE_ROLE_KEY"; do
+    [[ -z "$s" ]] && HAVE_ALL_SECRETS=false
+done
 
-ANON_KEY=$(generate_jwt "anon" "$JWT_SECRET")
-SERVICE_ROLE_KEY=$(generate_jwt "service_role" "$JWT_SECRET")
+if [[ "$ROTATE_SECRETS" == true && "$DB_VOLUME_EXISTS" == true ]]; then
+    echo ""
+    echo "[ERROR] --rotate-secrets refused: an existing DB volume was found at"
+    echo "        $DB_DATA_DIR"
+    echo "  Rotating JWT_SECRET / VAULT_ENC_KEY against existing internal-role"
+    echo "  passwords will crash-loop Supabase. Either:"
+    echo "    - wipe the volume (DESTROYS DATA): rm -rf '$DB_DATA_DIR' && re-run, or"
+    echo "    - follow the existing-volume repair path in readme.md."
+    exit 1
+fi
 
-echo "  JWT_SECRET: generated"
-echo "  ANON_KEY: generated"
-echo "  SERVICE_ROLE_KEY: generated"
+if [[ "$HAVE_ALL_SECRETS" == true && "$ROTATE_SECRETS" != true ]]; then
+    echo "[KEEP] Reusing existing derived secrets from $ENV_FILE (idempotent)."
+else
+    if [[ "$DB_VOLUME_EXISTS" == true && "$AUTO_MODE" != true ]]; then
+        echo ""
+        echo "[ERROR] Derived secrets are missing/incomplete but an existing DB"
+        echo "        volume was found at $DB_DATA_DIR."
+        echo "  Generating new secrets now would desync the existing database."
+        echo "  Restore the original secrets into $ENV_FILE, or follow the"
+        echo "  existing-volume repair path in readme.md."
+        exit 1
+    fi
+    echo "[GENERATE] Creating derived secrets ..."
+    JWT_SECRET=$(generate_password)$(generate_password)
+    SECRET_KEY_BASE=$(generate_password)$(generate_password)
+    VAULT_ENC_KEY=$(generate_password | head -c 32)
+    ANON_KEY=$(generate_jwt "anon" "$JWT_SECRET")
+    SERVICE_ROLE_KEY=$(generate_jwt "service_role" "$JWT_SECRET")
+fi
+
+echo "  JWT_SECRET: set"
+echo "  ANON_KEY: set"
+echo "  SERVICE_ROLE_KEY: set"
 
 # --- Step 3: Write complete .env ---
 
@@ -245,6 +304,10 @@ SECRET_KEY=$FLASK_SECRET_KEY
 UPLOAD_FOLDER=./uploads
 ALLOWED_EXTENSIONS=csv
 
+# Auto-promoted to admin on every Flask boot (_bootstrap_admin). Preserved
+# across bootstrap re-runs; leave blank to skip admin auto-promotion.
+ADMIN_EMAIL=$ADMIN_EMAIL
+
 # Flask-specific Supabase vars
 SUPABASE_URL=http://kong:8000
 SUPABASE_KEY=$ANON_KEY
@@ -262,6 +325,12 @@ ENVEOF
 
 echo ""
 echo "  Dashboard login: supabase / $DASHBOARD_PASSWORD"
+if [[ -z "$ADMIN_EMAIL" ]]; then
+    echo "  [WARN] ADMIN_EMAIL is blank — Flask will NOT auto-promote any"
+    echo "         admin user. Set ADMIN_EMAIL in $ENV_FILE and restart Flask."
+else
+    echo "  Admin (auto-promoted on boot): $ADMIN_EMAIL"
+fi
 
 # --- Step 2: Create volumes directory structure ---
 
@@ -451,20 +520,15 @@ cat > "$VOLUMES_DIR/db/roles.sql" << 'SQLEOF'
 
 \set pgpass `echo "$POSTGRES_PASSWORD"`
 
--- Supabase super admin
-ALTER USER supabase_admin WITH PASSWORD :'pgpass';
-
--- Authenticator role (used by PostgREST)
-ALTER USER authenticator WITH PASSWORD :'pgpass';
-
--- Supabase auth admin
-ALTER USER supabase_auth_admin WITH PASSWORD :'pgpass';
-
--- Supabase storage admin
-ALTER USER supabase_storage_admin WITH PASSWORD :'pgpass';
-
--- Dashboard user
-ALTER USER supabase_admin WITH PASSWORD :'pgpass';
+-- Re-sync every internal Supabase role to the current POSTGRES_PASSWORD.
+-- This must cover ALL roles the services authenticate as, otherwise the
+-- missing ones fail with SASL / 28P01 on an existing volume. DO blocks so a
+-- role the image did not create does not abort the whole script.
+DO $$ BEGIN IF EXISTS (SELECT FROM pg_roles WHERE rolname='postgres')               THEN EXECUTE format('ALTER USER postgres WITH PASSWORD %L', :'pgpass'); END IF; END $$;
+DO $$ BEGIN IF EXISTS (SELECT FROM pg_roles WHERE rolname='supabase_admin')         THEN EXECUTE format('ALTER USER supabase_admin WITH PASSWORD %L', :'pgpass'); END IF; END $$;
+DO $$ BEGIN IF EXISTS (SELECT FROM pg_roles WHERE rolname='authenticator')          THEN EXECUTE format('ALTER USER authenticator WITH PASSWORD %L', :'pgpass'); END IF; END $$;
+DO $$ BEGIN IF EXISTS (SELECT FROM pg_roles WHERE rolname='supabase_auth_admin')    THEN EXECUTE format('ALTER USER supabase_auth_admin WITH PASSWORD %L', :'pgpass'); END IF; END $$;
+DO $$ BEGIN IF EXISTS (SELECT FROM pg_roles WHERE rolname='supabase_storage_admin') THEN EXECUTE format('ALTER USER supabase_storage_admin WITH PASSWORD %L', :'pgpass'); END IF; END $$;
 SQLEOF
 
 cat > "$VOLUMES_DIR/db/jwt.sql" << 'SQLEOF'
@@ -539,6 +603,73 @@ CREATE SCHEMA IF NOT EXISTS _supavisor;
 ALTER SCHEMA _supavisor OWNER TO supabase_admin;
 SQLEOF
 
+# Idempotent auth schema/function ownership repair. On volumes where the
+# auth schema was created by `postgres` (init scripts) instead of by GoTrue,
+# the auth service's CREATE OR REPLACE FUNCTION migration fails with 42501.
+cat > "$VOLUMES_DIR/db/auth_ownership.sql" << 'SQLEOF'
+DO $$
+BEGIN
+  IF EXISTS (SELECT FROM information_schema.schemata WHERE schema_name='auth')
+     AND EXISTS (SELECT FROM pg_roles WHERE rolname='supabase_auth_admin') THEN
+    EXECUTE 'ALTER SCHEMA auth OWNER TO supabase_auth_admin';
+  END IF;
+END $$;
+DO $$
+DECLARE fn text;
+BEGIN
+  IF EXISTS (SELECT FROM pg_roles WHERE rolname='supabase_auth_admin') THEN
+    FOR fn IN
+      SELECT 'auth.' || p.proname || '(' ||
+             pg_get_function_identity_arguments(p.oid) || ')'
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'auth'
+        AND p.proname IN ('uid','role','email','jwt')
+    LOOP
+      EXECUTE format('ALTER FUNCTION %s OWNER TO supabase_auth_admin', fn);
+    END LOOP;
+  END IF;
+END $$;
+SQLEOF
+
+# One-shot idempotent repair script run by the `db-init` compose service on
+# every `up`, before realtime/auth/supavisor/flask start. Generated (not
+# inline in compose) so Docker Compose does not $-interpolate $f / $$.
+cat > "$VOLUMES_DIR/db/db-init.sh" << 'SH_EOF'
+#!/bin/bash
+set -u
+echo "[db-init] waiting for db ..."
+until pg_isready -q; do sleep 2; done
+
+echo "[db-init] re-syncing internal role passwords (roles.sql)"
+psql -v ON_ERROR_STOP=0 -f /init/roles.sql || echo "[db-init] WARN roles.sql"
+
+echo "[db-init] ensuring _supabase database exists"
+psql -tAc "SELECT 1 FROM pg_database WHERE datname='_supabase'" \
+  | grep -q 1 || psql -c "CREATE DATABASE _supabase"
+
+for f in realtime _supabase logs pooler webhooks; do
+  if [ -f "/init/$f.sql" ]; then
+    echo "[db-init] applying $f.sql"
+    psql -v ON_ERROR_STOP=0 -f "/init/$f.sql" || echo "[db-init] WARN $f.sql"
+  fi
+done
+
+echo "[db-init] ensuring _supavisor schema in _supabase db"
+psql -d _supabase -v ON_ERROR_STOP=0 \
+  -c "CREATE SCHEMA IF NOT EXISTS _supavisor AUTHORIZATION supabase_admin" \
+  || echo "[db-init] WARN _supavisor schema"
+
+if [ -f /init/auth_ownership.sql ]; then
+  echo "[db-init] repairing auth schema/function ownership (if present)"
+  psql -v ON_ERROR_STOP=0 -f /init/auth_ownership.sql \
+    || echo "[db-init] WARN auth ownership"
+fi
+
+echo "[db-init] done"
+SH_EOF
+chmod +x "$VOLUMES_DIR/db/db-init.sh"
+
 # --- Vector logging config ---
 cat > "$VOLUMES_DIR/logs/vector.yml" << 'VECTOREOF'
 api:
@@ -590,10 +721,20 @@ VECTOREOF
 # --- Pooler config ---
 cat > "$VOLUMES_DIR/pooler/pooler.exs" << 'POOLEREOF'
 # Supavisor pooler configuration
-# This is evaluated by Supavisor at startup
+# This is evaluated by Supavisor at startup via `supavisor eval`.
+#
+# `eval` runs WITHOUT booting the OTP application, so Ecto (Supavisor.Repo)
+# is not started and Tenants.create_tenant/1 would crash with
+# "could not lookup Ecto repo Supavisor.Repo because it was not started".
+# We must explicitly start the app first. We also make the tenant insert
+# idempotent so re-running on an existing volume does not crash-loop.
 
-{:ok, _} = Supavisor.Tenants.create_tenant(%{
-  "id" => System.get_env("POOLER_TENANT_ID", "fairdatabase"),
+{:ok, _} = Application.ensure_all_started(:supavisor)
+
+tenant_id = System.get_env("POOLER_TENANT_ID", "fairdatabase")
+
+params = %{
+  "id" => tenant_id,
   "db_host" => "db",
   "db_port" => String.to_integer(System.get_env("POSTGRES_PORT", "5432")),
   "db_database" => System.get_env("POSTGRES_DB", "postgres"),
@@ -613,7 +754,25 @@ cat > "$VOLUMES_DIR/pooler/pooler.exs" << 'POOLEREOF'
       "is_manager" => true
     }
   ]
-})
+}
+
+case Supavisor.Tenants.get_tenant_by_external_id(tenant_id) do
+  nil ->
+    case Supavisor.Tenants.create_tenant(params) do
+      {:ok, _} ->
+        IO.puts("[pooler.exs] tenant #{tenant_id} created")
+
+      # Tolerate a race / unique violation: another boot created it.
+      {:error, %Ecto.Changeset{errors: errors}} ->
+        IO.puts("[pooler.exs] tenant #{tenant_id} create skipped: #{inspect(errors)}")
+
+      other ->
+        IO.puts("[pooler.exs] tenant #{tenant_id} create returned: #{inspect(other)}")
+    end
+
+  _existing ->
+    IO.puts("[pooler.exs] tenant #{tenant_id} already exists; skipping")
+end
 POOLEREOF
 
 # --- Edge Functions main entrypoint ---
@@ -679,7 +838,8 @@ echo ""
 echo "Files created:"
 echo "  $ENV_FILE"
 echo "  $VOLUMES_DIR/api/kong.yml"
-echo "  $VOLUMES_DIR/db/{roles,jwt,realtime,webhooks,_supabase,logs,pooler}.sql"
+echo "  $VOLUMES_DIR/db/{roles,jwt,realtime,webhooks,_supabase,logs,pooler,auth_ownership}.sql"
+echo "  $VOLUMES_DIR/db/db-init.sh"
 echo "  $VOLUMES_DIR/logs/vector.yml"
 echo "  $VOLUMES_DIR/pooler/pooler.exs"
 echo "  $VOLUMES_DIR/functions/main/index.ts"
