@@ -31,7 +31,7 @@ if command -v podman &>/dev/null; then
     if (( MAJOR < 5 )); then
         echo "[WARN] Podman < 5.0 detected."
         echo "  host.docker.internal may not resolve automatically."
-        echo "  If the federated learning proxy fails, add to docker-compose.override.yml:"
+        echo "  If the federated learning proxy fails, add to the flask-app service in docker-compose.yml:"
         echo "    extra_hosts:"
         echo "      - \"host.docker.internal:host-gateway\""
     fi
