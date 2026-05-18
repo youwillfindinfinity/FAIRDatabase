@@ -4,6 +4,11 @@
 -- Create _fd schema
 CREATE SCHEMA IF NOT EXISTS _fd;
 
+-- Allow the Flask app user to create per-dataset tables in _fd.
+-- The schema is owned by supabase_admin (the migration runner) but the
+-- app connects as 'postgres', which needs CREATE to upload new datasets.
+GRANT CREATE ON SCHEMA _fd TO postgres;
+
 -- Create metadata_tables
 CREATE TABLE IF NOT EXISTS _fd.metadata_tables (
     id SERIAL PRIMARY KEY,
@@ -63,3 +68,22 @@ BEGIN
         RAISE NOTICE 'Migrated table: %', tbl.table_name;
     END LOOP;
 END $$;
+
+-- Add source column to pbpk_parameter_sets (tracks how the parameter set was created)
+ALTER TABLE _fd.pbpk_parameter_sets
+    ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
+
+-- Bind the epsilon-budget dataset to the FL task at creation time, so
+-- per-request payloads can no longer bypass DP budget enforcement.
+ALTER TABLE _fd.fl_tasks
+    ADD COLUMN IF NOT EXISTS dataset_id UUID;
+
+-- Per-round client submission ledger (binds one submission per client/round).
+CREATE TABLE IF NOT EXISTS _fd.fl_round_submissions (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id         UUID NOT NULL REFERENCES _fd.fl_tasks(id) ON DELETE CASCADE,
+    round_n         INT NOT NULL,
+    client_key      TEXT NOT NULL,
+    submitted_at    TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (task_id, round_n, client_key)
+);

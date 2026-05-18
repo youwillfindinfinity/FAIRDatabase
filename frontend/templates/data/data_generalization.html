@@ -18,6 +18,11 @@
       </div>
    {% endif %}
    {% endwith %}
+   {% if uploaded %}
+   <div style="text-align: right; margin-bottom: 0.5cm;">
+      <a href="{{ url_for('data_generalization_routes.reset_generalization') }}" class="btn btn-cancel-custom btn-sm">Upload New Dataset</a>
+   </div>
+   {% endif %}
    {% if not uploaded %}
    <div class="card text-center" style="background-color: white;">
       <div class="card-body">
@@ -172,7 +177,7 @@
          </div>
       </div>
    </form>
-   <form action="/consolidated_return" method="post">
+   <form action="{{ url_for('data_generalization_routes.consolidated_return') }}" method="post">
       <input type="text" name="state" value="4" style="display: none;">
       <button type="submit" class="btn btn-cancel-custom">Back</button>
    </form>
@@ -182,13 +187,10 @@
       <h3>Privacy metric score</h3>
       <p>Now the dataset has been generalised, a preliminary privacy metric score can be given. </p>
    </div>
-   <div class="row">
+   <div class="row" style="margin-bottom: 0.5cm;">
       <div class="col-8">
-         <a type="button" class="btn btn-primary-custom" href="/data/p29score">Calculate P29-Score</a>
+         <a type="button" class="btn btn-primary-custom" href="{{ url_for('data_generalization_routes.data_p29score') }}">Calculate P29-Score</a>
       </div>
-      <!-- <div class="col">
-         <a type="button" href="/return_to_dashboard" class="btn btn-primary-custom" style="margin-bottom: 1%;">Return to the dashboard</a>
-         </div> -->
    </div>
 </div>
 </div>

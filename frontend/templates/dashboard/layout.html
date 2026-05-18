@@ -4,21 +4,25 @@
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>{% block title %}FAIRMicrobiome{% endblock %}</title>
-      <link rel="shortcut icon" href="{{ url_for('static', filename='../../../img/metahealth_small.png') }}">
+      <link rel="shortcut icon" href="{{ url_for('static', filename='img/metahealth_small.png') }}">
+      <!-- Google Fonts: Exo (headings) · Inter (body) · Roboto Mono (data) -->
+      <link rel="preconnect" href="https://fonts.googleapis.com">
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+      <link href="https://fonts.googleapis.com/css2?family=Exo:wght@400;500;600;700&family=Inter:wght@400;500;600&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
       <!-- Bootstrap CSS, MDB CSS, Custom CSS, Font Awesome -->
       <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
       <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" />
       <link href="https://cdnjs.cloudflare.com/ajax/libs/mdb-ui-kit/3.6.0/mdb.min.css" rel="stylesheet" />
-      <link rel="stylesheet" href="../../../static/styles.css">
+      <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
    </head>
-   <body class="d-flex flex-column" style="background-color: #ebeff3;" id="body">
+   <body class="d-flex flex-column" id="body">
       <!-- Sidebar -->
       <div class="sidebar d-flex flex-column" id="sidebar">
-         <button class="btn mt-1 ml-auto" style="background-color: transparent; color: #fafafa;" type="button" onclick="toggleSidebar()">
+         <button class="btn mt-1 ml-auto sidebar-toggle-btn" type="button" onclick="toggleSidebar()">
          <i id="collapseIcon" class="fas fa-chevron-left"></i>
          </button>
          <div class="profile text-center">
-            <img id="profilePic" src="../../../static/img/avatar1.png" alt="Profile Picture" class="rounded-circle mb-2" style="width: 80px; height: 80px;" />
+            <img id="profilePic" src="{{ url_for('static', filename='img/avatar1.png') }}" alt="Profile Picture" class="rounded-circle mb-2" style="width: 80px; height: 80px;" />
             <p id="profileName" class="mb-0">{{ user_email }}</p>
             {% if current_role %}
             <p class="mb-0"><span class="badge bg-secondary">{{ current_role }}</span></p>
@@ -26,26 +30,30 @@
          </div>
          <ul class="navbar-nav flex-grow-1">
             <li class="nav-item">
-               <a class="nav-link" {% if current_path == '/dashboard' %} style="background-color: #102F31;" {% endif %} href="/dashboard">
+               <a class="nav-link{% if current_path == '/dashboard' %} active{% endif %}" href="/dashboard"
+                  data-bs-toggle="tooltip" data-bs-placement="right" data-bs-title="Dashboard">
                <i class="fa-solid fa-house"></i>
                <span class="sidebar-text">Dashboard</span>
                </a>
             </li>
             <li class="nav-item">
-               <a class="nav-link" {% if current_path == '/dashboard/search'%}style="background-color: #102F31;"{% endif %} {% if current_path == '/table_preview' %}style="background-color: #102F31;"{% endif %} href="/dashboard/search">
+               <a class="nav-link{% if current_path == '/dashboard/search' or current_path == '/table_preview' %} active{% endif %}" href="/dashboard/search"
+                  data-bs-toggle="tooltip" data-bs-placement="right" data-bs-title="Search">
                <i class="fas fa-search"></i>
                <span class="sidebar-text">Search</span>
                </a>
             </li>
             {% if can_upload %}
             <li class="nav-item">
-               <a class="nav-link" {% if current_path == '/dashboard/upload' %} style="background-color: #102F31;" {% endif %} href="/dashboard/upload">
+               <a class="nav-link{% if current_path == '/dashboard/upload' %} active{% endif %}" href="/dashboard/upload"
+                  data-bs-toggle="tooltip" data-bs-placement="right" data-bs-title="Upload">
                <i class="fas fa-upload"></i>
                <span class="sidebar-text">Upload</span>
                </a>
             </li>
             <li class="nav-item">
-               <a class="nav-link" {% if current_path == '/dashboard/update' %} style="background-color: #102F31;" {% endif %} href="/dashboard/update">
+               <a class="nav-link{% if current_path == '/dashboard/update' %} active{% endif %}" href="/dashboard/update"
+                  data-bs-toggle="tooltip" data-bs-placement="right" data-bs-title="Update entry">
                <i class="fa-solid fa-arrows-rotate"></i>
                <span class="sidebar-text">Update entry</span>
                </a>
@@ -53,33 +61,30 @@
             {% endif %}
             {% if is_admin %}
             <li class="nav-item">
-               <a class="nav-link" {% if current_path and current_path.startswith('/admin') %} style="background-color: #102F31;" {% endif %} href="/admin/users">
+               <a class="nav-link{% if current_path and current_path.startswith('/admin') %} active{% endif %}" href="/admin/users"
+                  data-bs-toggle="tooltip" data-bs-placement="right" data-bs-title="Admin">
                <i class="fa-solid fa-user-shield"></i>
                <span class="sidebar-text">Admin</span>
                </a>
             </li>
             {% endif %}
             <li class="nav-item">
-               <a class="nav-link"{% if current_path == '/data_generalization/data_generalization' or current_path == '/p29score' or current_path == '/differential_privacy' or current_path == '/privacy_processing' %}
-               style="background-color: #102F31; pointer-events: none; cursor:pointer;" {% endif %} href="/data/data_generalization">
+               <a class="nav-link{% if current_path == '/data_generalization/data_generalization' or current_path == '/p29score' or current_path == '/differential_privacy' or current_path == '/privacy_processing' %} active{% endif %}" href="/data/data_generalization"
+               data-bs-toggle="tooltip" data-bs-placement="right" data-bs-title="Data generalization">
                <i class="fa-solid fa-shield-halved"></i>
                <span class="sidebar-text">Data generalization</span>
                </a>
             </li>
-            <!-- <li class="nav-item">
-               <a class="nav-link" {% if current_path == '/p29score' %} style="background-color: #102F31;" {% endif %} href="/p29score">
-                  <i class="fa-solid fa-shield-halved"></i>
-               <span class="sidebar-text">Privacy Score</span>
-               </a>
-            </li> -->
             <li class="nav-item">
-               <a class="nav-link" {% if current_path == '/federated_learning/federated_learning' %} style="background-color: #102F31;" {% endif %} href="/privacy/federated_learning/federated_learning">
+               <a class="nav-link{% if current_path == '/federated/ui' %} active{% endif %}" href="/federated/ui"
+                  data-bs-toggle="tooltip" data-bs-placement="right" data-bs-title="Federated learning">
                <i class="fa-solid fa-arrows-split-up-and-left"></i>
                <span class="sidebar-text">Federated learning</span>
                </a>
             </li>
             <li class="nav-item">
-               <a class="nav-link" {% if current_path == '/visualization' %} style="background-color: #102F31;" {% endif %} href="/visualization">
+               <a class="nav-link{% if current_path == '/visualization' %} active{% endif %}" href="/visualization"
+                  data-bs-toggle="tooltip" data-bs-placement="right" data-bs-title="Visualization">
                <i class="fa-solid fa-chart-line"></i>
                <span class="sidebar-text">Visualization</span>
                </a>
@@ -88,7 +93,8 @@
          <div class="mt-auto">
             <ul class="navbar-nav">
                <li class="nav-item">
-                  <a type="button" class="nav-link" data-bs-toggle="modal" data-bs-target="#logoutModal"><i class="fas fa-sign-out-alt"></i> <span class="sidebar-text">Logout</span></a>
+                  <a type="button" class="nav-link" data-bs-toggle="modal" data-bs-target="#logoutModal"
+                     data-bs-toggle="tooltip" data-bs-placement="right" data-bs-title="Logout"><i class="fas fa-sign-out-alt"></i> <span class="sidebar-text">Logout</span></a>
                </li>
             </ul>
          </div>
@@ -99,9 +105,7 @@
             <div class="modal-content">
                <div class="modal-header">
                   <h5 class="modal-title" id="logoutModalLabel">Confirm Logout</h5>
-                  <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                  <span aria-hidden="true">&times;</span>
-                  </button>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                </div>
                <div class="modal-body">
                   Are you sure you want to logout?
@@ -121,7 +125,7 @@
                <div style="height: 40px;"></div>
                <div class="collapse navbar-collapse" id="navbarSupportedContent"></div>
                <a  data-bs-toggle="tooltip" data-bs-placement="bottom" {% if current_path != '/documentation' %} href="/documentation" data-bs-title="View documentation"{% endif %}>
-                  <i class="fa fa-info-circle info-icon" aria-hidden="true" {% if current_path == '/documentation' %} style="color: #70999C;" {% endif %} ></i>
+                  <i class="fa fa-info-circle info-icon{% if current_path == '/documentation' %} info-icon--active{% endif %}" aria-hidden="true"></i>
                </a>
             </div>
          </nav>
@@ -132,7 +136,8 @@
       <!-- Footer -->
       <footer class="footer custom-footer mt-auto">
          <div class="container text-center">
-            <small><b>FAIRDatabase @ 2024</b></small>
+            <small><b>FAIRDatabase &copy; <span id="footer-year"></span></b></small>
+            <script>document.getElementById('footer-year').textContent = new Date().getFullYear();</script>
          </div>
       </footer>
       {% block scripts %}
@@ -143,8 +148,6 @@
       <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/mdb-ui-kit/3.6.0/mdb.min.js"></script>
       <script src="https://kit.fontawesome.com/f09ae2d1c7.js" crossorigin="anonymous"></script>
       <script src="{{ url_for('static', filename='script.js') }}"></script>
-      <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-      <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
       {% endblock %}
 
    </body>
