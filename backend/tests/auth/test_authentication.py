@@ -20,13 +20,13 @@ class TestAuthenticationUserExists:
         response = client.post("/auth/login", data={"email": TEST_EMAIL})
         assert response.status_code == 400
 
-    def test_bad_passwords(self, client):
-        responses = []
+    def test_bad_passwords(self, client, app):
+        from config import limiter
         for password in ["a", "aBc1", "ab#1", "AB#1", "aBc#"]:
+            with app.app_context():
+                limiter.reset()
             data = {"email": TEST_EMAIL, "password": password}
-            responses.append(client.post("/auth/register", data=data))
-
-        for response in responses:
+            response = client.post("/auth/register", data=data)
             assert response.status_code == 400
 
 
@@ -41,11 +41,11 @@ class TestAuthenticationUserNotExists:
         response = client.post("/auth/login", data={"email": TEST_PASSWORD})
         assert response.status_code == 400
 
-    def test_bad_passwords(self, client):
-        responses = []
+    def test_bad_passwords(self, client, app):
+        from config import limiter
         for password in ["a", "aBc1", "ab#1", "AB#1", "aBc#"]:
+            with app.app_context():
+                limiter.reset()
             data = {"email": TEST_EMAIL, "password": password}
-            responses.append(client.post("/auth/register", data=data))
-
-        for response in responses:
+            response = client.post("/auth/register", data=data)
             assert response.status_code == 400

@@ -133,42 +133,67 @@ def pg_ensure_schema_and_metadata(cur, schema):
         required: true
         description: PostgreSQL cursor for executing commands.
     """
-    schema_id = sql.Identifier(f"_{_clean_identifier(schema)}")
+    clean_schema = f"_{_clean_identifier(schema)}"
+    schema_id = sql.Identifier(clean_schema)
     cur.execute(
         sql.SQL("CREATE SCHEMA IF NOT EXISTS {};").format(schema_id)
     )
-    cur.execute(
-        sql.SQL("""
-        CREATE TABLE IF NOT EXISTS {schema}.metadata_tables (
-            id SERIAL PRIMARY KEY,
-            table_name TEXT NOT NULL,
-            main_table TEXT NOT NULL,
-            description TEXT,
-            origin TEXT,
-            owner_id uuid,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-        """).format(schema=schema_id)
-    )
 
-    # Create a table where metadata for samples can be stored
+    # Check existence before CREATE to avoid permission errors on tables
+    # owned by the migration user (e.g. supabase_admin) when the app
+    # connects as a non-owner role that has CREATE on the schema but not
+    # ownership of existing tables.
     cur.execute(
-        sql.SQL("""
-        CREATE TABLE IF NOT EXISTS {schema}.sample_metadata (
-            id SERIAL PRIMARY KEY,
-            parent_table TEXT NOT NULL,
-            sample_id TEXT NOT NULL,
-            metadata_field TEXT NOT NULL,
-            metadata_value TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(parent_table, sample_id, metadata_field)
-        );
-        CREATE INDEX IF NOT EXISTS idx_sample_metadata_parent
-            ON {schema}.sample_metadata(parent_table);
-        CREATE INDEX IF NOT EXISTS idx_sample_metadata_sample
-            ON {schema}.sample_metadata(sample_id);
-        """).format(schema=schema_id)
+        "SELECT 1 FROM information_schema.tables "
+        "WHERE table_schema = %s AND table_name = 'metadata_tables'",
+        (clean_schema,),
     )
+    if cur.fetchone() is None:
+        cur.execute(
+            sql.SQL("""
+            CREATE TABLE {schema}.metadata_tables (
+                id SERIAL PRIMARY KEY,
+                table_name TEXT NOT NULL,
+                main_table TEXT NOT NULL,
+                description TEXT,
+                origin TEXT,
+                owner_id uuid,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """).format(schema=schema_id)
+        )
+
+    cur.execute(
+        "SELECT 1 FROM information_schema.tables "
+        "WHERE table_schema = %s AND table_name = 'sample_metadata'",
+        (clean_schema,),
+    )
+    if cur.fetchone() is None:
+        cur.execute(
+            sql.SQL("""
+            CREATE TABLE {schema}.sample_metadata (
+                id SERIAL PRIMARY KEY,
+                parent_table TEXT NOT NULL,
+                sample_id TEXT NOT NULL,
+                metadata_field TEXT NOT NULL,
+                metadata_value TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(parent_table, sample_id, metadata_field)
+            );
+            """).format(schema=schema_id)
+        )
+        cur.execute(
+            sql.SQL(
+                "CREATE INDEX idx_sample_metadata_parent"
+                " ON {schema}.sample_metadata(parent_table);"
+            ).format(schema=schema_id)
+        )
+        cur.execute(
+            sql.SQL(
+                "CREATE INDEX idx_sample_metadata_sample"
+                " ON {schema}.sample_metadata(sample_id);"
+            ).format(schema=schema_id)
+        )
 
 
 def pg_create_data_table(cur, schema, table_name, columns, patient_col):

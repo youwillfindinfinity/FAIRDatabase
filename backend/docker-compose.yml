@@ -414,6 +414,7 @@ services:
       # pbpk_schema.sql's RLS policies depend on. Apply rbac first.
       - ./rbac_schema.sql:/docker-entrypoint-initdb.d/migrations/101-fd-rbac.sql:Z
       - ./pbpk_schema.sql:/docker-entrypoint-initdb.d/migrations/102-fd-pbpk.sql:Z
+      - ./demo_schema.sql:/docker-entrypoint-initdb.d/migrations/103-fd-demo.sql:Z
     ports:
     - "5433:5432"
     healthcheck:
