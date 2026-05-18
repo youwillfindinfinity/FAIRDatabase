@@ -13,6 +13,8 @@ services:
     container_name: supabase-studio
     image: supabase/studio:20250224-d10db0f
     restart: unless-stopped
+    ports:
+      - "3000:3000"
     healthcheck:
       test:
         [
@@ -573,6 +575,59 @@ services:
     # The script is a generated file (volumes/db/db-init.sh), NOT inline, so
     # Docker Compose does not $-interpolate the shell/SQL ($f, PL/pgSQL $$).
     entrypoint: ["/bin/bash", "/init/db-init.sh"]
+
+  # FAIRDatabase Flask application. Part of the base stack (no override file)
+  # so `docker compose up -d` works from backend/ regardless of -f flags.
+  flask-app:
+    container_name: fairdatabase-flask
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      # Persist uploaded files outside the container
+      - ./uploads:/app/backend/uploads
+    environment:
+      ENV: development
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      UPLOAD_FOLDER: ./uploads
+      ALLOWED_EXTENSIONS: csv
+
+      # Database: connect to the Supabase DB container by service name
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_SECRET: ${POSTGRES_PASSWORD}
+      POSTGRES_DB_NAME: ${POSTGRES_DB:-postgres}
+
+      # Supabase: connect to Kong API gateway by service name
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+
+      # Federated learning service (running on host machine)
+      FED_API_BASE: http://host.docker.internal:7070
+
+      # CORS
+      ALLOWED_ORIGINS: http://localhost:5000,http://localhost:3000
+
+    depends_on:
+      db:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+      kong:
+        condition: service_started
+      auth:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
 
 volumes:
   db-config:

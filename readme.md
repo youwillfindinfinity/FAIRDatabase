@@ -47,7 +47,7 @@ Requires only [Docker](https://docs.docker.com/get-docker/) installed. Choose on
 
 ---
 
-> The Flask app runs **in a container** (`fairdatabase-flask`, defined in `docker-compose.override.yml`, auto-merged by `docker compose`). `docker compose up -d` starts the whole stack — Supabase **and** the app. You do **not** create a venv or run `./run.sh` for normal use; that is only for host-based development (see [Optional: run Flask on the host](#optional-run-flask-on-the-host-for-development)).
+> The Flask app runs **in a container** (`fairdatabase-flask`, defined directly in `backend/docker-compose.yml`). `docker compose up -d` starts the whole stack — Supabase **and** the app. You do **not** create a venv or run `./run.sh` for normal use; that is only for host-based development (see [Optional: run Flask on the host](#optional-run-flask-on-the-host-for-development)).
 
 ### Option A: Fully Automatic Setup (Zero Config)
 
