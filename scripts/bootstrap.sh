@@ -521,14 +521,15 @@ cat > "$VOLUMES_DIR/db/roles.sql" << 'SQLEOF'
 \set pgpass `echo "$POSTGRES_PASSWORD"`
 
 -- Re-sync every internal Supabase role to the current POSTGRES_PASSWORD.
--- This must cover ALL roles the services authenticate as, otherwise the
--- missing ones fail with SASL / 28P01 on an existing volume. DO blocks so a
--- role the image did not create does not abort the whole script.
-DO $$ BEGIN IF EXISTS (SELECT FROM pg_roles WHERE rolname='postgres')               THEN EXECUTE format('ALTER USER postgres WITH PASSWORD %L', :'pgpass'); END IF; END $$;
-DO $$ BEGIN IF EXISTS (SELECT FROM pg_roles WHERE rolname='supabase_admin')         THEN EXECUTE format('ALTER USER supabase_admin WITH PASSWORD %L', :'pgpass'); END IF; END $$;
-DO $$ BEGIN IF EXISTS (SELECT FROM pg_roles WHERE rolname='authenticator')          THEN EXECUTE format('ALTER USER authenticator WITH PASSWORD %L', :'pgpass'); END IF; END $$;
-DO $$ BEGIN IF EXISTS (SELECT FROM pg_roles WHERE rolname='supabase_auth_admin')    THEN EXECUTE format('ALTER USER supabase_auth_admin WITH PASSWORD %L', :'pgpass'); END IF; END $$;
-DO $$ BEGIN IF EXISTS (SELECT FROM pg_roles WHERE rolname='supabase_storage_admin') THEN EXECUTE format('ALTER USER supabase_storage_admin WITH PASSWORD %L', :'pgpass'); END IF; END $$;
+-- Must cover ALL roles the services authenticate as, else the missing ones
+-- fail with SASL / 28P01 on an existing volume. Plain ALTER USER: psql does
+-- NOT substitute :'pgpass' inside DO $$...$$ blocks. These roles always
+-- exist on the supabase/postgres image.
+ALTER USER postgres WITH PASSWORD :'pgpass';
+ALTER USER supabase_admin WITH PASSWORD :'pgpass';
+ALTER USER authenticator WITH PASSWORD :'pgpass';
+ALTER USER supabase_auth_admin WITH PASSWORD :'pgpass';
+ALTER USER supabase_storage_admin WITH PASSWORD :'pgpass';
 SQLEOF
 
 cat > "$VOLUMES_DIR/db/jwt.sql" << 'SQLEOF'
