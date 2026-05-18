@@ -8,11 +8,16 @@ def compute_partition_by_ids(dataset: pd.DataFrame, quasi_cols: list) -> list:
 
     :param dataset: A pandas DataFrame containing the dataset.
     :param quasi_cols: A list of column names considered as quasi-identifiers.
-    :return: A list containing lists of row indices that form
-    equivalence groups.
+    :return: A list of lists of *positional* row indices (0-based) that form
+    equivalence groups. Positional (not label) indices are returned because
+    every consumer selects with ``df.iloc[group]``; using ``groupby().groups``
+    (label-based) would silently select the wrong rows — or raise — on any
+    DataFrame whose index is not a clean 0..n-1 RangeIndex (e.g. after row
+    filtering by the privacy pipeline). ``groupby().indices`` yields the
+    integer positions ``.iloc`` expects.
     """
     grouped = dataset.groupby(by=quasi_cols)
-    partitions = [list(indices) for indices in grouped.groups.values()]
+    partitions = [list(positions) for positions in grouped.indices.values()]
     return partitions
 
 

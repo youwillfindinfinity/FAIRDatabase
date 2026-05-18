@@ -615,3 +615,17 @@ h1, h2, h3, h4, h5, h6 {
   background-color: transparent;
   color: var(--color-sidebar-text);
 }
+
+/* "Load More / Collapse" row-limit buttons — hover styling moved here from
+   inline JS style mutation. !important matches the prior JS behaviour, which
+   overrode an inline base background. Colours use shared design tokens. */
+#toggleRows,
+#toggleRowsResults {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+#toggleRows:hover,
+#toggleRowsResults:hover {
+  background-color: var(--color-primary-mid) !important;
+  border-color: var(--color-primary-hover) !important;
+}

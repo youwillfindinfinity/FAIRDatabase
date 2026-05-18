@@ -13,7 +13,8 @@ from typing import Optional
 def create_task(conn, *, algorithm: str, rounds_total: int, mu: float,
                 dp_epsilon: float, dp_delta: float, dp_noise_mult: float,
                 dp_clip_norm: float, simulation: bool, sim_alpha: float,
-                sim_n_clients: int, model_arch: dict, created_by: Optional[str]) -> str:
+                sim_n_clients: int, model_arch: dict, created_by: Optional[str],
+                dataset_id: Optional[str] = None) -> str:
     """Insert a new FL task and return its UUID."""
     task_id = str(uuid.uuid4())
     with conn.cursor() as cur:
@@ -22,12 +23,12 @@ def create_task(conn, *, algorithm: str, rounds_total: int, mu: float,
             INSERT INTO _fd.fl_tasks
                 (id, algorithm, rounds_total, mu, dp_epsilon, dp_delta,
                  dp_noise_mult, dp_clip_norm, simulation, sim_alpha,
-                 sim_n_clients, model_arch, created_by)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                 sim_n_clients, model_arch, created_by, dataset_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (task_id, algorithm, rounds_total, mu, dp_epsilon, dp_delta,
              dp_noise_mult, dp_clip_norm, simulation, sim_alpha,
-             sim_n_clients, json.dumps(model_arch), created_by),
+             sim_n_clients, json.dumps(model_arch), created_by, dataset_id),
         )
     conn.commit()
     return task_id
@@ -86,6 +87,41 @@ def get_round(conn, task_id: str, round_n: int) -> Optional[dict]:
             return None
         cols = [d[0] for d in cur.description]
         return dict(zip(cols, row))
+
+
+def register_round_submission(
+    conn, task_id: str, round_n: int, client_key: str
+) -> bool:
+    """Record a client's submission for a round.
+
+    Returns ``True`` if this is the client's first submission for the round,
+    ``False`` if the client already submitted (UNIQUE conflict) — letting the
+    caller reject duplicates so one client cannot inflate the round count.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO _fd.fl_round_submissions (task_id, round_n, client_key)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (task_id, round_n, client_key) DO NOTHING
+            RETURNING id
+            """,
+            (task_id, round_n, client_key),
+        )
+        inserted = cur.fetchone() is not None
+    conn.commit()
+    return inserted
+
+
+def count_round_submissions(conn, task_id: str, round_n: int) -> int:
+    """Number of distinct clients that have submitted for this round."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) FROM _fd.fl_round_submissions "
+            "WHERE task_id=%s AND round_n=%s",
+            (task_id, round_n),
+        )
+        return int(cur.fetchone()[0])
 
 
 def list_rounds(conn, task_id: str) -> list[dict]:
@@ -162,6 +198,43 @@ def consume_epsilon(conn, dataset_id: str, amount: float) -> None:
             (amount, dataset_id),
         )
     conn.commit()
+
+
+def consume_epsilon_guarded(conn, dataset_id: str, amount: float) -> bool:
+    """Atomically check-and-consume epsilon budget under a row lock.
+
+    Locks the budget row with ``SELECT ... FOR UPDATE`` so concurrent
+    submissions for the same dataset cannot both pass the check and overspend
+    (the unguarded check-then-act in submit_gradients had a TOCTOU race).
+
+    Returns ``True`` if the amount was consumed (or no budget row exists, i.e.
+    enforcement not configured), ``False`` if the budget is exhausted — in
+    which case nothing is deducted.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT spent, total_budget FROM _fd.fl_epsilon_budget "
+            "WHERE dataset_id = %s FOR UPDATE",
+            (dataset_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            conn.commit()
+            return True
+        spent, total_budget = row
+        if spent >= total_budget:
+            conn.commit()
+            return False
+        cur.execute(
+            """
+            UPDATE _fd.fl_epsilon_budget
+            SET spent = spent + %s, last_updated = NOW()
+            WHERE dataset_id = %s
+            """,
+            (amount, dataset_id),
+        )
+    conn.commit()
+    return True
 
 
 def enroll_dataset(conn, dataset_id: str, total_budget: float = 10.0) -> None:

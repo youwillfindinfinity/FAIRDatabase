@@ -37,6 +37,25 @@ if SECRET_KEY == "dev-secret":
         "set SECRET_KEY env var before deploying FL in production"
     )
 
+def _load_task_authorized(task_id):
+    """Fetch a task and enforce per-task ownership.
+
+    Mirrors the PBPK PoC RBAC model (CLAUDE.md): admins access any task;
+    every other role may only access tasks they created. There is no
+    cross-user grant table for FL, so a non-owner non-admin is rejected.
+
+    Returns ``(task, None)`` on success or ``(None, error_response)`` where
+    ``error_response`` is a ready-to-return Flask ``(body, status)`` tuple.
+    """
+    task = fl_db.get_task(g.db, task_id)
+    if task is None:
+        return None, (jsonify({"error": "Task not found"}), 404)
+    owner = task.get("created_by")
+    if g.role != "admin" and (owner is None or str(owner) != str(g.user)):
+        return None, (jsonify({"error": "Forbidden"}), 403)
+    return task, None
+
+
 # ── Legacy redirect ────────────────────────────────────────────────────────────
 
 @routes.route("/federated_learning/federated_learning")
@@ -80,13 +99,26 @@ def create_task():
     dp_delta = float(payload.get("dp_delta", 1e-5))
     rounds_total = int(payload["rounds_total"])
 
+    # Whitelist the algorithm: it is persisted and later rendered in the FL
+    # dashboard. Rejecting unknown values here keeps untrusted strings out of
+    # the task table (defense against stored XSS / bad engine dispatch).
+    algorithm = payload.get("algorithm", "fedprox")
+    allowed_algorithms = {"fedprox", "fedavg"}
+    if algorithm not in allowed_algorithms:
+        return (
+            jsonify(
+                {"error": f"Invalid algorithm; allowed: {sorted(allowed_algorithms)}"}
+            ),
+            400,
+        )
+
     noise_mult = compute_noise_multiplier(
         epsilon=dp_epsilon, delta=dp_delta, rounds=rounds_total
     )
 
     task_id = fl_db.create_task(
         g.db,
-        algorithm=payload.get("algorithm", "fedprox"),
+        algorithm=algorithm,
         rounds_total=rounds_total,
         mu=float(payload.get("mu", 0.01)),
         dp_epsilon=dp_epsilon,
@@ -98,6 +130,9 @@ def create_task():
         sim_n_clients=int(payload.get("sim_n_clients", 5)),
         model_arch=payload.get("model_arch", {}),
         created_by=g.user,
+        # Bound at creation; submit_gradients reads it from the task, never
+        # from the per-request payload (closes the budget-bypass vector).
+        dataset_id=payload.get("dataset_id"),
     )
     return jsonify({"task_id": task_id, "dp_noise_mult": noise_mult}), 201
 
@@ -108,11 +143,20 @@ def list_tasks():
     """Return all FL tasks as JSON (used by the UI to refresh the tasks table)."""
     try:
         with g.db.cursor() as cur:
-            cur.execute(
+            base_sql = (
                 "SELECT id, status, algorithm, rounds_total, rounds_done, "
-                "dp_epsilon, simulation, created_at "
-                "FROM _fd.fl_tasks ORDER BY created_at DESC LIMIT 50"
+                "dp_epsilon, simulation, created_at FROM _fd.fl_tasks "
             )
+            # Non-admins only see tasks they created (per-task ownership,
+            # consistent with _load_task_authorized).
+            if g.role == "admin":
+                cur.execute(base_sql + "ORDER BY created_at DESC LIMIT 50")
+            else:
+                cur.execute(
+                    base_sql
+                    + "WHERE created_by = %s ORDER BY created_at DESC LIMIT 50",
+                    (g.user,),
+                )
             cols = [d[0] for d in cur.description]
             tasks = [dict(zip(cols, r)) for r in cur.fetchall()]
         for t in tasks:
@@ -127,9 +171,9 @@ def list_tasks():
 @routes.route("/tasks/<task_id>", methods=["GET"])
 @login_required()
 def get_task(task_id):
-    task = fl_db.get_task(g.db, task_id)
-    if task is None:
-        return jsonify({"error": "Task not found"}), 404
+    task, _authz_err = _load_task_authorized(task_id)
+    if _authz_err:
+        return _authz_err
     return jsonify(task), 200
 
 
@@ -137,9 +181,9 @@ def get_task(task_id):
 @login_required("admin", "curator")
 def cancel_task(task_id):
     """Mark a stuck or unwanted task as cancelled (status → failed)."""
-    task = fl_db.get_task(g.db, task_id)
-    if task is None:
-        return jsonify({"error": "Task not found"}), 404
+    task, _authz_err = _load_task_authorized(task_id)
+    if _authz_err:
+        return _authz_err
     if task.get("status") == "completed":
         return jsonify({"error": "Cannot cancel a completed task"}), 400
     fl_db.set_task_status(g.db, task_id, "failed")
@@ -154,9 +198,9 @@ def export_task(task_id):
     Weights are excluded (privacy hygiene — use export-params to store them).
     """
     import csv, io
-    task = fl_db.get_task(g.db, task_id)
-    if task is None:
-        return jsonify({"error": "Task not found"}), 404
+    task, _authz_err = _load_task_authorized(task_id)
+    if _authz_err:
+        return _authz_err
 
     rounds = fl_db.list_rounds(g.db, task_id)
     for r in rounds:
@@ -220,9 +264,9 @@ def export_task(task_id):
 @routes.route("/tasks/<task_id>/rounds", methods=["GET"])
 @login_required()
 def list_rounds(task_id):
-    task = fl_db.get_task(g.db, task_id)
-    if task is None:
-        return jsonify({"error": "Task not found"}), 404
+    task, _authz_err = _load_task_authorized(task_id)
+    if _authz_err:
+        return _authz_err
     rounds = fl_db.list_rounds(g.db, task_id)
     # Strip raw weights from response — never expose to clients
     for r in rounds:
@@ -237,29 +281,50 @@ def submit_gradients(task_id, round_n):
     Accept an encrypted client weight update, decrypt in memory,
     clip to L2 norm, add Gaussian DP noise, and aggregate.
     """
-    task = fl_db.get_task(g.db, task_id)
-    if task is None:
-        return jsonify({"error": "Task not found"}), 404
+    task, _authz_err = _load_task_authorized(task_id)
+    if _authz_err:
+        return _authz_err
 
     payload = request.get_json(silent=True) or {}
     if "ciphertext" not in payload or "nonce" not in payload:
         return jsonify({"error": "Encrypted gradient payload required"}), 400
 
-    # Check epsilon budget for this dataset
-    dataset_id = payload.get("dataset_id")
+    # Epsilon budget is keyed to the dataset bound to the task at creation
+    # time — NOT the client-supplied payload — so a client cannot skip
+    # budget enforcement by omitting/altering dataset_id.
+    dataset_id = task.get("dataset_id")
     if dataset_id:
         budget = fl_db.get_epsilon_budget(g.db, dataset_id)
         if budget and (budget["spent"] >= budget["total_budget"]):
             return jsonify({"error": "Epsilon budget exhausted for this dataset"}), 403
 
+    # Bind this submission to a distinct client for real-FL tasks: a client
+    # may contribute at most once per round, so a single caller cannot satisfy
+    # the round's client count by itself. Simulation tasks (one caller drives
+    # all synthetic clients) are exempt.
+    is_sim = bool(task.get("simulation"))
+    if not is_sim:
+        client_key = str(payload.get("site_id") or f"user:{g.user}")
+        if not fl_db.register_round_submission(
+            g.db, task_id, round_n, client_key
+        ):
+            return (
+                jsonify(
+                    {"error": "This client already submitted for this round"}
+                ),
+                409,
+            )
+
     # Decrypt in memory — never written to disk
     weights = decrypt_weights(payload, task_id, SECRET_KEY)
 
-    # DP pipeline: clip → noise
+    # DP pipeline: clip per client now; noise is added ONCE to the aggregated
+    # sum below (standard DP-FedAvg). Adding noise per client and averaging
+    # would shrink effective noise to ~sigma/sqrt(N), making the real epsilon
+    # larger than what the RDP accountant (one GaussianDpEvent/round) reports.
     clip_norm = float(task["dp_clip_norm"])
     noise_mult = float(task["dp_noise_mult"])
     clipped = clip_gradients(weights, clip_norm)
-    noised = add_gaussian_noise_dp(clipped, noise_mult, clip_norm)
 
     # Open or get current round
     rnd = fl_db.get_round(g.db, task_id, round_n)
@@ -271,31 +336,49 @@ def submit_gradients(task_id, round_n):
     existing = rnd.get("aggregated_weights") or []
     existing_count = rnd.get("client_count", 0)
 
-    # Running weighted sum (will be divided on aggregation trigger)
+    # Running sum of CLIPPED (un-noised) updates; noised on aggregation trigger
     if existing:
-        acc = np.array(existing, dtype=np.float32) + noised
+        acc = np.array(existing, dtype=np.float32) + clipped
     else:
-        acc = noised.copy()
-    new_count = existing_count + 1
+        acc = clipped.copy()
+    # For real FL the round size is the number of DISTINCT clients that have
+    # registered a submission; simulation keeps the simple running counter.
+    if is_sim:
+        new_count = existing_count + 1
+    else:
+        new_count = fl_db.count_round_submissions(g.db, task_id, round_n)
 
     # Check if all expected clients have submitted
     clients_needed = int(task.get("sim_n_clients", 1))
     is_final = new_count >= clients_needed
 
     if is_final:
-        # Divide accumulated sum by client count to get average; sanitize NaN/Inf for JSON
-        aggregated = np.nan_to_num(acc / new_count, nan=0.0, posinf=0.0, neginf=0.0).tolist()
+        # Add Gaussian noise ONCE to the accumulated sum (sensitivity = clip_norm
+        # w.r.t. one client), then divide by client count to get the private
+        # mean. This matches the accountant's one-Gaussian-per-round model.
+        noised_sum = add_gaussian_noise_dp(acc, noise_mult, clip_norm)
+        aggregated = np.nan_to_num(
+            noised_sum / new_count, nan=0.0, posinf=0.0, neginf=0.0
+        ).tolist()
         eps_spent = compute_epsilon_spent(
             noise_multiplier=noise_mult,
             delta=float(task["dp_delta"]),
             rounds_done=int(task["rounds_done"]) + 1,
         )
+
+        # Atomically check-and-consume the budget BEFORE persisting the round,
+        # under a row lock, so concurrent final submissions cannot overspend.
+        if dataset_id and not fl_db.consume_epsilon_guarded(
+            g.db, dataset_id, eps_spent
+        ):
+            return (
+                jsonify({"error": "Epsilon budget exhausted for this dataset"}),
+                403,
+            )
+
         fl_db.store_aggregated_weights(g.db, task_id, round_n,
                                         aggregated, eps_spent, None)
         fl_db.advance_task_round(g.db, task_id)
-
-        if dataset_id:
-            fl_db.consume_epsilon(g.db, dataset_id, eps_spent)
 
         if int(task["rounds_done"]) + 1 >= int(task["rounds_total"]):
             fl_db.set_task_status(g.db, task_id, "completed")
@@ -314,9 +397,9 @@ def submit_gradients(task_id, round_n):
 @routes.route("/tasks/<task_id>/model", methods=["GET"])
 @login_required()
 def get_model(task_id):
-    task = fl_db.get_task(g.db, task_id)
-    if task is None:
-        return jsonify({"error": "Task not found"}), 404
+    task, _authz_err = _load_task_authorized(task_id)
+    if _authz_err:
+        return _authz_err
     weights = fl_db.get_latest_weights(g.db, task_id)
     if weights is None:
         return jsonify({"error": "No completed round yet"}), 404
@@ -346,9 +429,9 @@ def run_simulation(task_id):
     Dirichlet partition uses quantile-binned targets for continuous regression,
     so α correctly controls IID/non-IID degree regardless of target type.
     """
-    task = fl_db.get_task(g.db, task_id)
-    if task is None:
-        return jsonify({"error": "Task not found"}), 404
+    task, _authz_err = _load_task_authorized(task_id)
+    if _authz_err:
+        return _authz_err
     if not task.get("simulation"):
         return jsonify({"error": "Task is not a simulation task"}), 400
     if task.get("status") == "completed":
@@ -482,9 +565,9 @@ def run_simulation(task_id):
 def export_params(task_id):
     """Export final aggregated FL weights as a named PBPK parameter set."""
     from src.model.helpers import store_parameter_set
-    task = fl_db.get_task(g.db, task_id)
-    if task is None:
-        return jsonify({"error": "Task not found"}), 404
+    task, _authz_err = _load_task_authorized(task_id)
+    if _authz_err:
+        return _authz_err
     weights = fl_db.get_latest_weights(g.db, task_id)
     if weights is None:
         return jsonify({"error": "No model to export yet"}), 404

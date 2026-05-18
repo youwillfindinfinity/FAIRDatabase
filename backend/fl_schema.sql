@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS _fd.fl_tasks (
     sim_alpha       FLOAT NOT NULL DEFAULT 0.5,
     sim_n_clients   INT NOT NULL DEFAULT 5,
     model_arch      JSONB NOT NULL DEFAULT '{}',
+    dataset_id      UUID,
     created_by      UUID,
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );
@@ -40,6 +41,18 @@ CREATE TABLE IF NOT EXISTS _fd.fl_clients (
     dataset_id      UUID,
     registered_at   TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE (task_id, site_id)
+);
+
+-- One row per distinct client submission within a round. The UNIQUE
+-- constraint binds each client to at most one gradient submission per
+-- round, so a single caller cannot satisfy a round's client count alone.
+CREATE TABLE IF NOT EXISTS _fd.fl_round_submissions (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id         UUID NOT NULL REFERENCES _fd.fl_tasks(id) ON DELETE CASCADE,
+    round_n         INT NOT NULL,
+    client_key      TEXT NOT NULL,
+    submitted_at    TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (task_id, round_n, client_key)
 );
 
 -- Per-dataset DP epsilon budget

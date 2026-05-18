@@ -1,8 +1,6 @@
-"""Demo blueprint."""
+"""Demo API package.
 
-from flask import Blueprint
-
-routes = Blueprint("demo", __name__)
-
-# Import routes to register them with the blueprint
-from src.demo import routes  # noqa: F401, E402
+The Blueprint lives in ``src.demo.routes`` (imported directly by app.py).
+This module intentionally defines no Blueprint — a second one here shadowed
+the real one and caused a duplicate-name registration ambiguity.
+"""

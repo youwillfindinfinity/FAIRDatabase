@@ -9,6 +9,7 @@ from flask import (
     url_for,
     session,
     g,
+    current_app,
 )
 
 from src.auth.decorators import login_required
@@ -94,6 +95,7 @@ def fl_dashboard():
             budgets = [dict(zip(cols, r)) for r in cur.fetchall()]
     except Exception:
         g.db.rollback()
+        current_app.logger.exception("FL admin dashboard query failed")
 
     return render_template(
         "admin/fl.html",

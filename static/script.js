@@ -96,15 +96,8 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
-    // Bugfix for button color not working
-    toggleRowsButton.addEventListener('mouseenter', function () {
-        this.style.backgroundColor = '#70999C';
-        this.style.borderColor = '#1A4B4F';
-    });
-
-    toggleRowsButton.addEventListener('mouseleave', function () {
-        this.style.backgroundColor = '#1E5B5E';
-    });
+    // Hover styling lives in CSS (#toggleRows:hover / #toggleRowsResults:hover)
+    // using the shared design tokens — no inline style mutation here.
 
     // Reset search field
     resetButton.addEventListener('click', function (event) {
@@ -149,15 +142,6 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
             updateVisibleRows(10);
         }
-    });
-
-    toggleRowsButton.addEventListener('mouseenter', function () {
-        this.style.backgroundColor = '#70999C';
-        this.style.borderColor = '#1A4B4F';
-    });
-
-    toggleRowsButton.addEventListener('mouseleave', function () {
-        this.style.backgroundColor = '#1E5B5E';
     });
 
     updateVisibleRows(currentLimit);

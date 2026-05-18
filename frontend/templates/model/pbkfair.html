@@ -3,34 +3,36 @@
 {% block title %}PBK Lifetime Model — PFAS/PFOA{% endblock %}
 
 {% block content %}
-<!-- ══ Google Fonts: Outfit (headings) ══ -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-
 <style>
-/* ── Design tokens (portal palette) ──────────────────────────────────────── */
+/* ── Design tokens ───────────────────────────────────────────────────────────
+   The page-local pbk- component CSS is kept intact but every brand colour and
+   typeface now ALIASES the shared design system defined in static/styles.css
+   (loaded globally by dashboard/layout.html, which this template extends).
+   No bespoke palette, no bespoke webfont — the shared tokens are the single
+   source of truth. Scenario accents below are categorical data-encoding
+   colours (not brand palette) and have no shared-token equivalent. */
 :root {
-  --pbk-primary:      #0891B2;
-  --pbk-primary-10:   rgba(8,145,178,.10);
-  --pbk-primary-20:   rgba(8,145,178,.20);
-  --pbk-dark:         #051312;
-  --pbk-slate-50:     #f8fafc;
-  --pbk-slate-100:    #f1f5f9;
-  --pbk-slate-200:    #e2e8f0;
-  --pbk-slate-300:    #cbd5e1;
-  --pbk-slate-400:    #94a3b8;
-  --pbk-slate-500:    #64748b;
-  --pbk-slate-600:    #475569;
-  --pbk-slate-700:    #334155;
-  --pbk-slate-800:    #1e293b;
-  --pbk-slate-900:    #0f172a;
-  --pbk-radius:       0.75rem;
-  --pbk-radius-sm:    0.5rem;
+  --pbk-primary:      var(--color-primary);
+  --pbk-primary-10:   rgba(var(--bs-primary-rgb), .10);
+  --pbk-primary-20:   rgba(var(--bs-primary-rgb), .20);
+  --pbk-dark:         var(--color-sidebar-bg);
+  --pbk-slate-50:     var(--color-surface-muted);
+  --pbk-slate-100:    var(--color-background);
+  --pbk-slate-200:    var(--color-border);
+  --pbk-slate-300:    var(--color-border);
+  --pbk-slate-400:    var(--color-text-muted);
+  --pbk-slate-500:    var(--color-text-muted);
+  --pbk-slate-600:    var(--color-text-secondary);
+  --pbk-slate-700:    var(--color-text-secondary);
+  --pbk-slate-800:    var(--color-text-primary);
+  --pbk-slate-900:    var(--color-text-primary);
+  --pbk-radius:       var(--bs-border-radius-lg);
+  --pbk-radius-sm:    var(--bs-border-radius);
   --pbk-shadow:       0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
   --pbk-shadow-md:    0 4px 6px -1px rgba(0,0,0,.1), 0 2px 4px -2px rgba(0,0,0,.1);
-  --pbk-font:         'Outfit', 'Inter', system-ui, sans-serif;
-  --pbk-mono:         'Roboto Mono', 'JetBrains Mono', Consolas, monospace;
-  /* scenario accent colours */
+  --pbk-font:         var(--bs-body-font-family);
+  --pbk-mono:         'Roboto Mono', Consolas, monospace;
+  /* scenario accent colours (categorical data encoding, not brand palette) */
   --c-no-bf:    #eff6ff; --c-no-bf-b:    #bfdbfe; --c-no-bf-t:    #1d4ed8;
   --c-bf-6:     #f0fdf4; --c-bf-6-b:     #bbf7d0; --c-bf-6-t:     #15803d;
   --c-bf-1:     #fff7ed; --c-bf-1-b:     #fed7aa; --c-bf-1-t:     #c2410c;
@@ -783,7 +785,7 @@
       <div class="pbk-card-body">
         <div class="pbk-organ-pills" id="var-pills">
           <button class="pbk-pill active" data-var="C_ven" onclick="toggleVar(this)">
-            <span class="dot" style="background:#0891B2"></span>C_ven (venous)
+            <span class="dot" style="background:var(--color-primary)"></span>C_ven (venous)
           </button>
           <button class="pbk-pill" data-var="C_art" onclick="toggleVar(this)">
             <span class="dot" style="background:#dc2626"></span>C_art (arterial)
@@ -995,8 +997,11 @@
   let _activeVars = ["C_ven"];
   let _currentRunId = null;
 
+  // Chart series are categorical data-encoding colours. The primary series
+  // (C_ven) mirrors the shared brand token --color-primary (#1E5B5E); the
+  // rest are distinct data hues with no shared-token equivalent.
   const VAR_COLORS = {
-    C_ven: "#0891B2", C_art: "#dc2626",
+    C_ven: "#1E5B5E", C_art: "#dc2626",
     C_milk: "#10b981", BDW: "#f59e0b",
   };
 

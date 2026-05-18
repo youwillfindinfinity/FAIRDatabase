@@ -1,31 +1,28 @@
 """Demo-specific data helpers."""
 
-import os
 from contextlib import contextmanager
-import psycopg2
-from flask import current_app
-
-
-def get_db_connection():
-    """Create a connection to the demo database."""
-    return psycopg2.connect(
-        host=current_app.config["POSTGRES_HOST"],
-        port=current_app.config["POSTGRES_PORT"],
-        user=current_app.config["POSTGRES_USER"],
-        password=current_app.config["POSTGRES_SECRET"],
-        database=current_app.config["POSTGRES_DB_NAME"],
-    )
+from psycopg2 import sql
+from flask import g
 
 
 @contextmanager
 def get_db_cursor():
-    """Context manager for database cursor."""
-    conn = get_db_connection()
+    """Yield a cursor on the per-request connection (``g.db``).
+
+    Uses the same request-scoped connection as the rest of the app instead of
+    opening a private psycopg2 connection. Demo endpoints are read-only, so no
+    commit is issued; an aborted transaction is rolled back so a later handler
+    on the same request keeps a clean connection. Closing is handled by the
+    app-wide ``teardown_db``.
+    """
+    cur = g.db.cursor()
     try:
-        yield conn.cursor()
-        conn.commit()
+        yield cur
+    except Exception:
+        g.db.rollback()
+        raise
     finally:
-        conn.close()
+        cur.close()
 
 
 def get_demo_datasets():
@@ -62,12 +59,22 @@ def get_demo_query_results(dataset, group_by, measure):
     if measure not in allowed_measures:
         raise ValueError(f"Invalid measure: {measure}")
 
-    with get_db_cursor() as cur:
-        cur.execute("""
-            SELECT {group_by}, {measure}
-            FROM _demo.query_results
-            WHERE dataset = %s
-            ORDER BY {group_by}
-        """.format(group_by=group_by, measure=measure), (dataset,))
+    # Identifiers are allow-listed above (defense in depth); compose them with
+    # psycopg2.sql.Identifier so they are always safely quoted and can never
+    # be string-interpolated into the statement, even if the allow-lists are
+    # later widened or this helper is copied for another module.
+    query = sql.SQL(
+        """
+        SELECT {group_by}, {measure}
+        FROM _demo.query_results
+        WHERE dataset = %s
+        ORDER BY {group_by}
+        """
+    ).format(
+        group_by=sql.Identifier(group_by),
+        measure=sql.Identifier(measure),
+    )
 
+    with get_db_cursor() as cur:
+        cur.execute(query, (dataset,))
         return [{"group": row[0], "value": row[1]} for row in cur.fetchall()]
