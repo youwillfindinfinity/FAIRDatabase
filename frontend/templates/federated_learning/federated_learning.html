@@ -670,6 +670,12 @@ function renderTasks(tasks) {
     tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding:2rem;color:var(--fl-slate-400);font-size:.85rem">No FL tasks yet — run the simulation above or use <code>POST /fl/tasks</code>.</td></tr>';
     return;
   }
+  // Escape any server-supplied string before it is interpolated into
+  // innerHTML. /fl/tasks fields (algorithm, status, …) originate from the DB
+  // and must be treated as untrusted to prevent stored XSS.
+  const esc = s => String(s).replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
   tbody.innerHTML = tasks.map(t => {
     const statusClass = t.status === 'completed' ? 'badge-completed'
                       : t.status === 'running'   ? 'badge-running'
@@ -678,25 +684,26 @@ function renderTasks(tasks) {
     const modeLabel = t.simulation
       ? '<span class="pill badge-sim">Simulation</span>'
       : '<span class="pill badge-real">Real FL</span>';
+    const idEnc = encodeURIComponent(t.id);
 
     // Actions
     const cancelBtn = (t.status === 'running' || t.status === 'pending')
-      ? `<button class="btn-action btn-cancel" onclick="cancelTask('${t.id}')">Cancel</button>`
+      ? `<button class="btn-action btn-cancel" onclick="cancelTask('${esc(t.id)}')">Cancel</button>`
       : '';
     const exportJsonBtn = t.status === 'completed'
-      ? `<a class="btn-action btn-export" href="/fl/tasks/${t.id}/export?format=json" download>JSON</a>`
+      ? `<a class="btn-action btn-export" href="/fl/tasks/${idEnc}/export?format=json" download>JSON</a>`
       : '';
     const exportCsvBtn = t.status === 'completed'
-      ? `<a class="btn-action btn-export-csv" href="/fl/tasks/${t.id}/export?format=csv" download>CSV</a>`
+      ? `<a class="btn-action btn-export-csv" href="/fl/tasks/${idEnc}/export?format=csv" download>CSV</a>`
       : '';
 
     return `<tr>
-      <td><code style="font-size:.8rem">${t.id.slice(0,8)}</code></td>
-      <td>${t.algorithm}</td>
-      <td>${t.rounds_done}/${t.rounds_total}</td>
-      <td><span style="font-family:var(--fl-mono)">ε=${t.dp_epsilon}</span></td>
+      <td><code style="font-size:.8rem">${esc(String(t.id).slice(0,8))}</code></td>
+      <td>${esc(t.algorithm)}</td>
+      <td>${esc(t.rounds_done)}/${esc(t.rounds_total)}</td>
+      <td><span style="font-family:var(--fl-mono)">ε=${esc(t.dp_epsilon)}</span></td>
       <td>${modeLabel}</td>
-      <td><span class="pill ${statusClass}">${t.status}</span></td>
+      <td><span class="pill ${statusClass}">${esc(t.status)}</span></td>
       <td style="white-space:nowrap">${cancelBtn}${exportJsonBtn}${exportCsvBtn}</td>
     </tr>`;
   }).join('');
