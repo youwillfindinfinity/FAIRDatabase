@@ -661,12 +661,24 @@ echo "[db-init] ensuring _supabase database exists"
 psql -tAc "SELECT 1 FROM pg_database WHERE datname='_supabase'" \
   | grep -q 1 || psql -c "CREATE DATABASE _supabase"
 
-for f in realtime _supabase logs pooler webhooks; do
+for f in realtime _supabase logs pooler; do
   if [ -f "/init/$f.sql" ]; then
     echo "[db-init] applying $f.sql"
     psql -v ON_ERROR_STOP=0 -f "/init/$f.sql" || echo "[db-init] WARN $f.sql"
   fi
 done
+
+# webhooks.sql touches the supabase_functions schema, which is owned by
+# supabase_admin. In the supabase/postgres image `postgres` is NOT a superuser
+# (supabase_admin is), so this must connect as supabase_admin or it fails with
+# "permission denied for schema supabase_functions". The role's password is
+# kept in sync with POSTGRES_PASSWORD by roles.sql, so the existing PGPASSWORD
+# already authenticates it.
+if [ -f /init/webhooks.sql ]; then
+  echo "[db-init] applying webhooks.sql (as supabase_admin)"
+  psql -U supabase_admin -v ON_ERROR_STOP=0 -f /init/webhooks.sql \
+    || echo "[db-init] WARN webhooks.sql"
+fi
 
 echo "[db-init] ensuring _supavisor schema in _supabase db"
 psql -d _supabase -v ON_ERROR_STOP=0 \
@@ -674,8 +686,11 @@ psql -d _supabase -v ON_ERROR_STOP=0 \
   || echo "[db-init] WARN _supavisor schema"
 
 if [ -f /init/auth_ownership.sql ]; then
-  echo "[db-init] repairing auth schema/function ownership (if present)"
-  psql -v ON_ERROR_STOP=0 -f /init/auth_ownership.sql \
+  # ALTER SCHEMA auth OWNER ... requires ownership of the auth schema, which is
+  # owned by supabase_admin (the image's real superuser). Running as postgres
+  # fails with "must be owner of schema auth", so connect as supabase_admin.
+  echo "[db-init] repairing auth schema/function ownership (as supabase_admin)"
+  psql -U supabase_admin -v ON_ERROR_STOP=0 -f /init/auth_ownership.sql \
     || echo "[db-init] WARN auth ownership"
 fi
 
