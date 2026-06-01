@@ -62,6 +62,7 @@ bash scripts/bootstrap.sh --auto
 
 > **Admin user:** `--auto` cannot guess who the admin is, so it leaves `ADMIN_EMAIL=` blank (it prints a `[WARN]`). To get an auto-promoted admin, set `ADMIN_EMAIL=<your-email>` in `backend/.env` after this step, then (re)start the stack. `_bootstrap_admin` promotes that account to `admin` on every boot, and the value is preserved across future `bootstrap.sh` re-runs — so you set it once. Without it, assign roles manually via `/admin/users`.
 
+> **Plugin selection** Setup your plugins via the allowlist (FAIRDB_PLUGINS) or the reject list (FAIRDB_PLUGINS_DISABLED)
 #### Step 2 — Start the stack
 
 ```bash
