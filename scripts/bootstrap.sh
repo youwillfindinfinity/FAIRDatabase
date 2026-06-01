@@ -96,6 +96,8 @@ if [[ "$AUTO_MODE" == true ]]; then
     ENABLE_EMAIL_AUTOCONFIRM="true"
     FED_API_BASE="http://host.docker.internal:7070"
     ADMIN_EMAIL=""
+    FAIRDB_PLUGINS=""
+    FAIRDB_PLUGINS_DISABLED=""
 elif [[ -f "$ENV_FILE" ]]; then
     echo "[READ] Reading admin passwords from $ENV_FILE ..."
 
@@ -116,6 +118,10 @@ elif [[ -f "$ENV_FILE" ]]; then
     # admin user. Must be preserved across re-runs or the admin silently
     # loses their role.
     ADMIN_EMAIL=$(read_env_var "ADMIN_EMAIL")
+    # Plugin selection — preserved across re-runs so an operator's choice of
+    # which plugins to load isn't silently reset on every bootstrap.
+    FAIRDB_PLUGINS=$(read_env_var "FAIRDB_PLUGINS")
+    FAIRDB_PLUGINS_DISABLED=$(read_env_var "FAIRDB_PLUGINS_DISABLED")
 
     # Validate required passwords are set
     if [[ -z "$POSTGRES_PASSWORD" || -z "$DASHBOARD_PASSWORD" || -z "$FLASK_SECRET_KEY" ]]; then
@@ -307,6 +313,13 @@ ALLOWED_EXTENSIONS=csv
 # Auto-promoted to admin on every Flask boot (_bootstrap_admin). Preserved
 # across bootstrap re-runs; leave blank to skip admin auto-promotion.
 ADMIN_EMAIL=$ADMIN_EMAIL
+
+# Plugin selection (loader auto-discovers backend/plugins/* otherwise).
+#   FAIRDB_PLUGINS          — allowlist; ONLY these load (empty = all).
+#   FAIRDB_PLUGINS_DISABLED — denylist; applied after the allowlist.
+# Folder names: pbpk, horizontal_fl. Preserved across bootstrap re-runs.
+FAIRDB_PLUGINS=$FAIRDB_PLUGINS
+FAIRDB_PLUGINS_DISABLED=$FAIRDB_PLUGINS_DISABLED
 
 # Flask-specific Supabase vars
 SUPABASE_URL=http://kong:8000
