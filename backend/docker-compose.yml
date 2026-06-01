@@ -584,6 +584,11 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
+      # Build only the selected plugins' Python deps (mirrors the runtime env
+      # vars below). Empty FAIRDB_PLUGINS = build all plugins' deps.
+      args:
+        FAIRDB_PLUGINS: ${FAIRDB_PLUGINS:-}
+        FAIRDB_PLUGINS_DISABLED: ${FAIRDB_PLUGINS_DISABLED:-}
     restart: unless-stopped
     ports:
       - "5000:5000"

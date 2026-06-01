@@ -5,6 +5,14 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends libpq5 libexpat1 curl postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
+# Plugin selection at BUILD time. Mirrors the runtime FAIRDB_PLUGINS /
+# FAIRDB_PLUGINS_DISABLED env vars (read by kernel/loader.py), so a build that
+# only enables some plugins also only installs THOSE plugins' Python deps —
+# e.g. building with FAIRDB_PLUGINS=pbpk won't pull in horizontal_fl's torch.
+# Empty FAIRDB_PLUGINS = install all (back-compat).
+ARG FAIRDB_PLUGINS=""
+ARG FAIRDB_PLUGINS_DISABLED=""
+
 # Install Python deps first for layer caching. Plugin requirements files are
 # discovered and installed AFTER core, with core requirements.txt passed as a
 # pip --constraint so a plugin cannot upgrade/downgrade a shared dep version.
@@ -15,6 +23,16 @@ COPY backend/plugins/ /app/backend/plugins/
 RUN pip install --no-cache-dir -r /app/backend/requirements.txt && \
     for req in /app/backend/plugins/*/requirements.txt; do \
         [ -f "$req" ] || continue; \
+        name="$(basename "$(dirname "$req")")"; \
+        case "$name" in _*) continue ;; esac; \
+        if [ -n "$FAIRDB_PLUGINS" ]; then \
+            case ",$FAIRDB_PLUGINS," in *",$name,"*) : ;; *) \
+                echo "Skipping plugin deps (not in FAIRDB_PLUGINS): $name"; continue ;; \
+            esac; \
+        fi; \
+        case ",$FAIRDB_PLUGINS_DISABLED," in *",$name,"*) \
+            echo "Skipping plugin deps (in FAIRDB_PLUGINS_DISABLED): $name"; continue ;; \
+        esac; \
         echo "Installing plugin deps: $req"; \
         pip install --no-cache-dir \
             --constraint /app/backend/requirements.txt \
