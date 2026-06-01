@@ -99,7 +99,7 @@ def app():
             "SUPABASE_SERVICE_ROLE_KEY": os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
             "POSTGRES_DB_NAME": os.getenv("POSTGRES_DB_NAME"),
             "POSTGRES_USER": os.getenv("POSTGRES_USER"),
-            "POSTGRES_SECRET": os.getenv("POSTGRES_SECRET"),
+            "POSTGRES_PASSWORD": os.getenv("POSTGRES_PASSWORD"),
             "POSTGRES_PORT": os.getenv("POSTGRES_PORT"),
             "POSTGRES_HOST": os.getenv("POSTGRES_HOST"),
         }

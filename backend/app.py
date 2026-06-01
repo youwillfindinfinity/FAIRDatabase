@@ -4,12 +4,18 @@ starts the server."""
 import os
 
 import psycopg2
-from flask import Flask, json, g, url_for, redirect, flash
+from flask import Flask, json, g, url_for, redirect, flash, request
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
 from supabase import create_client
 
 from config import Config, supabase_extension, limiter, get_db, teardown_db
+from kernel.loader import (
+    discover_plugins,
+    register_plugins,
+    apply_plugin_schema,
+    bootstrap_plugin_buckets,
+)
 from src.exceptions import GenericExceptionHandler
 from src.auth.routes import routes as auth_routes
 from src.dashboard.routes import routes as dashboard_routes
@@ -17,9 +23,6 @@ from src.data.routes import routes as data_routes
 from src.privacy.routes import routes as privacy_routes
 from src.main.routes import routes as main_routes
 from src.visualization.routes import routes as visualization_routes
-from src.federated.routes import routes as federated_routes
-from src.federated.routes import fl_routes
-from src.model.routes import routes as model_routes
 from src.admin.routes import routes as admin_routes
 from src.demo.routes import routes as demo_routes
 
@@ -63,7 +66,7 @@ def _bootstrap_admin(app):
             host=app.config["POSTGRES_HOST"],
             port=app.config["POSTGRES_PORT"],
             user=app.config["POSTGRES_USER"],
-            password=app.config["POSTGRES_SECRET"],
+            password=app.config["POSTGRES_PASSWORD"],
             database=app.config["POSTGRES_DB_NAME"],
         )
         try:
@@ -93,34 +96,31 @@ def _bootstrap_admin(app):
 
 
 def _apply_schema(app):
-    """Idempotently apply the SQL schema files at boot.
+    """Idempotently apply the core SQL schema files at boot.
 
     Every file is written with ``CREATE ... IF NOT EXISTS`` / ``ADD COLUMN
-    IF NOT EXISTS`` so re-running is safe. ``migrate_schema.sql`` both creates
-    the ``_fd`` base objects AND has tail ALTERs that depend on the pbpk/fl
-    tables, so it is applied once before and once after those — the second
-    pass is a no-op except for the dependent ALTERs.
+    IF NOT EXISTS`` so re-running is safe. Each file runs in its own
+    transaction; a failure is logged and skipped so one bad/optional file
+    cannot block Flask boot.
 
-    Each file runs in its own transaction; a failure is logged and skipped so
-    one bad/optional file cannot block Flask boot (same philosophy as
-    ``_bootstrap_pbpk_bucket``). ``pbpk_storage_policies.sql`` is intentionally
-    excluded — it targets Supabase Storage and is applied out of band.
+    Plugin schema (PBPK, horizontal FL, …) and kernel schema are applied
+    separately by the plugin loader (``apply_plugin_schema``). The PBPK and FL
+    modules are now plugins, so ``pbpk_schema.sql`` / ``fl_schema.sql`` are no
+    longer applied here — and migrate_schema.sql no longer needs a second pass
+    (its plugin-dependent tail ALTERs moved into the owning plugin/kernel SQL).
     """
     base = os.path.dirname(os.path.abspath(__file__))
     order = [
         "migrate_schema.sql",
         "rbac_schema.sql",
-        "pbpk_schema.sql",
-        "fl_schema.sql",
         "demo_schema.sql",
-        "migrate_schema.sql",  # second pass: tail ALTERs need pbpk/fl tables
     ]
     try:
         conn = psycopg2.connect(
             host=app.config["POSTGRES_HOST"],
             port=app.config["POSTGRES_PORT"],
             user=app.config["POSTGRES_USER"],
-            password=app.config["POSTGRES_SECRET"],
+            password=app.config["POSTGRES_PASSWORD"],
             database=app.config["POSTGRES_DB_NAME"],
         )
     except Exception as exc:
@@ -143,45 +143,6 @@ def _apply_schema(app):
                 app.logger.warning("Schema file %s failed: %s", fname, exc)
     finally:
         conn.close()
-
-
-def _bootstrap_pbpk_bucket(app):
-    """Ensure the ``pbpk-artifacts`` Supabase Storage bucket exists.
-
-    Runs once at app-factory time (not per-request). Idempotent: a 409 /
-    "already exists" response from Supabase is treated as success. Any other
-    failure is logged and swallowed so a transient Supabase outage does not
-    crash the Flask boot — the artifact upload route will surface a clearer
-    502 to the caller if the bucket is genuinely missing later.
-
-    Storage RLS policies (``storage.objects``) are NOT applied here — see
-    ``backend/pbpk_storage_policies.sql`` for the one-shot psql apply.
-    """
-    bucket_id = "pbpk-artifacts"
-    file_size_limit = 200 * 1024 * 1024  # keep in sync with routes.ARTIFACT_MAX_BYTES
-
-    url = app.config.get("SUPABASE_URL")
-    service_key = app.config.get("SUPABASE_SERVICE_ROLE_KEY")
-    if not url or not service_key:
-        app.logger.info("Supabase not configured; skipping PBPK bucket bootstrap")
-        return
-
-    try:
-        client = create_client(url, service_key)
-        try:
-            client.storage.create_bucket(
-                bucket_id,
-                options={"public": False, "file_size_limit": file_size_limit},
-            )
-            app.logger.info("Created Supabase Storage bucket %r", bucket_id)
-        except Exception as exc:
-            msg = str(exc).lower()
-            if "already exists" in msg or "duplicate" in msg or "409" in msg:
-                app.logger.info("Supabase bucket %r already exists; skipping", bucket_id)
-                return
-            raise
-    except Exception as exc:
-        app.logger.warning("PBPK bucket bootstrap failed: %s", exc)
 
 
 def create_app(db_name=None):
@@ -208,11 +169,15 @@ def create_app(db_name=None):
     app.register_blueprint(data_routes, url_prefix="/data")
     app.register_blueprint(privacy_routes, url_prefix="/privacy")
     app.register_blueprint(visualization_routes, url_prefix="/visualization")
-    app.register_blueprint(federated_routes, url_prefix="/federated")
-    app.register_blueprint(fl_routes, url_prefix="/fl")
-    app.register_blueprint(model_routes, url_prefix="/model")
     app.register_blueprint(admin_routes, url_prefix="/admin")
     app.register_blueprint(demo_routes, url_prefix="/api/demo")
+
+    # Plugin discovery + blueprint/template mounting. Runs alongside the
+    # hardcoded registrations above; a no-op until plugins land under
+    # backend/plugins/ (migration plan Phase 2). DB schema + bucket creation
+    # for plugins is deferred to the boot block below.
+    plugins = discover_plugins(app)
+    register_plugins(app, plugins)
 
     # Single CORS init — flask-cors must only be applied once per app, or it
     # registers multiple after_request handlers and emits duplicated /
@@ -242,8 +207,11 @@ def create_app(db_name=None):
 
     if app.config.get("ENV") != "testing":
         _apply_schema(app)  # before _bootstrap_admin: it needs _fd.user_roles
+        # Kernel SQL + each plugin's migrations. After _apply_schema so the
+        # _fd schema exists; idempotent.
+        apply_plugin_schema(app, plugins)
         _bootstrap_admin(app)
-        _bootstrap_pbpk_bucket(app)
+        bootstrap_plugin_buckets(app, plugins)
 
     app.teardown_appcontext(teardown_db)
 
@@ -260,6 +228,7 @@ def create_app(db_name=None):
             "is_admin": role == "admin",
             "is_curator": role == "curator",
             "can_upload": role in ("admin", "curator"),
+            "current_path": request.path if request else "",
         }
 
     @app.errorhandler(GenericExceptionHandler)
@@ -275,4 +244,7 @@ def create_app(db_name=None):
 if __name__ == "__main__":
     app = create_app()
     load_settings(app)
-    app.run(debug=True)
+    # threaded=True so a plugin can make an in-process HTTP call to another
+    # plugin's route (e.g. horizontal_fl → POST /model/parameter-sets) without
+    # the single-threaded dev server deadlocking on the self-request.
+    app.run(debug=True, threaded=True)

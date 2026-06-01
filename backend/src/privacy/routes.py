@@ -12,7 +12,7 @@ from flask import (
 
 from src.auth.decorators import login_required
 from .form import DifferentialPrivacyHandler, PrivacyProcessingHandler
-from src.federated import db as fl_db
+from kernel import dp_budget as fl_db
 
 
 routes = Blueprint("privacy_routes", __name__)

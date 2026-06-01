@@ -1,0 +1,14 @@
+# Example plugin runtime dependencies. Delete this file if the plugin has none.
+#
+# Installed at image build time by the project Dockerfile (and by
+# `scripts/install-plugin-deps.sh` in dev). The shared `backend/requirements.txt`
+# is passed as a pip --constraint so a plugin cannot upgrade or downgrade a
+# version pinned by the core (numpy, pandas, supabase, etc.).
+#
+# Use only top-level imports your plugin actually needs. Optional deps that are
+# lazy-imported inside one route should still be listed here (so operators can
+# install them via the plugin), but should NOT appear in `required_packages`
+# in plugin.py — otherwise the loader will skip-mount the entire plugin when
+# the dep is missing.
+#
+# requests>=2.31

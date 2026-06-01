@@ -89,8 +89,8 @@ def add_gaussian_noise_dp(
     Add calibrated Gaussian noise for (ε,δ)-DP after clipping.
 
     σ = noise_mult * clip_norm, where noise_mult is pre-computed by the RDP
-    accountant (see src/federated/fl_privacy.py) to satisfy the ε,δ budget
-    across all FL rounds.
+    accountant (see kernel.privacy / kernel.rdp_accountant) to satisfy the
+    ε,δ budget across all FL rounds.
     """
     sigma = noise_mult * clip_norm
     return weights + np.random.normal(0.0, sigma, size=weights.shape)

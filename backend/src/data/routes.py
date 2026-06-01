@@ -20,7 +20,7 @@ from flask import (
 from src.auth.decorators import login_required
 from src.dashboard.helpers import assert_can_modify_table
 from .form import DataGeneralizationHandler, DataP29ScoreHandler
-from src.federated import db as fl_db
+from kernel import dp_budget as fl_db
 
 import asyncio
 

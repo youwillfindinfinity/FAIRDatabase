@@ -2,7 +2,7 @@
    on authentication."""
 
 
-from flask import Blueprint, session, render_template, request
+from flask import Blueprint, redirect, render_template, request, session
 
 routes = Blueprint("main_routes", __name__)
 
@@ -10,6 +10,21 @@ routes = Blueprint("main_routes", __name__)
 @routes.route("/documentation")
 def documentation():
     return render_template("/documentation/documentation.html", current_path=request.path), 200
+
+
+# ── Legacy FL redirects ───────────────────────────────────────────────────────
+# The federated-learning module became the horizontal_fl plugin (mounted at
+# /fl) in migration plan Phase 5. These keep old /federated/* bookmarks working
+# and can be removed once no external links rely on them.
+
+@routes.route("/federated/ui")
+def legacy_federated_ui():
+    return redirect("/fl/ui", code=301)
+
+
+@routes.route("/federated/federated_learning/federated_learning")
+def legacy_federated_redirect():
+    return redirect("/fl/ui", code=301)
 
 
 @routes.route("/")

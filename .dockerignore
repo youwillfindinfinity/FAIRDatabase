@@ -17,9 +17,10 @@ backend/.venv/
 backend/.env
 backend/tests/.env.test
 
-# Supabase volumes (runtime data, not for image)
-backend/volumes/db/data/
-backend/volumes/storage/
+# Supabase runtime volumes — exclude the whole tree; postgres data dir is
+# root-owned (mode 700) and unreadable by the build user, which makes
+# BuildKit's context sender fail before .dockerignore narrows the walk.
+backend/volumes
 
 # IDE
 .vscode/

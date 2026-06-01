@@ -1,7 +1,8 @@
 -- RBAC schema for FAIRDatabase.
 -- Idempotent: safe to re-run on every boot. Applied after migrate_schema.sql
--- (which creates the _fd schema) and BEFORE pbpk_schema.sql, because
--- pbpk_schema.sql's RLS policies call _fd.current_role() defined here.
+-- (which creates the _fd schema) and BEFORE the plugin loader runs at Flask
+-- boot, because plugin-owned RLS policies (e.g. plugins/pbpk/sql/001_schema.sql)
+-- call _fd.current_role() defined here.
 --
 -- Roles model: one role per user, drawn from {admin, curator, accessor, visualizer}.
 --   - admin     : full access; manages users and grants

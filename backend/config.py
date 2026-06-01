@@ -79,7 +79,7 @@ class Config:
     POSTGRES_HOST = os.getenv("POSTGRES_HOST")
     POSTGRES_PORT = os.getenv("POSTGRES_PORT")
     POSTGRES_USER = os.getenv("POSTGRES_USER")
-    POSTGRES_SECRET = os.getenv("POSTGRES_SECRET")
+    POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD")
     POSTGRES_DB_NAME = os.getenv("POSTGRES_DB_NAME")
     # Demo API rate limiting
     DEMO_RATE_LIMIT = os.getenv("DEMO_RATE_LIMIT", "100 per hour")
@@ -214,7 +214,7 @@ def init_db():
             host=config["POSTGRES_HOST"],
             port=config["POSTGRES_PORT"],
             user=config["POSTGRES_USER"],
-            password=config["POSTGRES_SECRET"],
+            password=config["POSTGRES_PASSWORD"],
             database=config["POSTGRES_DB_NAME"],
         )
         return conn
@@ -259,7 +259,7 @@ def load_settings(app):
     app.config["POSTGRES_HOST"] = os.getenv("POSTGRES_HOST", "127.0.0.1")
     app.config["POSTGRES_PORT"] = int(os.getenv("POSTGRES_PORT", "5433"))
     app.config["POSTGRES_USER"] = os.getenv("POSTGRES_USER", "postgres")
-    app.config["POSTGRES_SECRET"] = os.getenv("POSTGRES_SECRET", "")
+    app.config["POSTGRES_PASSWORD"] = os.getenv("POSTGRES_PASSWORD", "")
     app.config["POSTGRES_DB_NAME"] = os.getenv("POSTGRES_DB_NAME", "postgres")
 
 supabase_extension = Supabase()

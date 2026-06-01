@@ -1,0 +1,1380 @@
+{% extends "dashboard/layout.html" %}
+
+{% block title %}PBK Lifetime Model — PFAS/PFOA{% endblock %}
+
+{% block content %}
+{% include "pbpk/_studies_tabs.html" %}
+<style>
+/* ── Design tokens ───────────────────────────────────────────────────────────
+   The page-local pbk- component CSS is kept intact but every brand colour and
+   typeface now ALIASES the shared design system defined in static/styles.css
+   (loaded globally by dashboard/layout.html, which this template extends).
+   No bespoke palette, no bespoke webfont — the shared tokens are the single
+   source of truth. Scenario accents below are categorical data-encoding
+   colours (not brand palette) and have no shared-token equivalent. */
+:root {
+  --pbk-primary:      var(--color-primary);
+  --pbk-primary-10:   rgba(var(--bs-primary-rgb), .10);
+  --pbk-primary-20:   rgba(var(--bs-primary-rgb), .20);
+  --pbk-dark:         var(--color-sidebar-bg);
+  --pbk-slate-50:     var(--color-surface-muted);
+  --pbk-slate-100:    var(--color-background);
+  --pbk-slate-200:    var(--color-border);
+  --pbk-slate-300:    var(--color-border);
+  --pbk-slate-400:    var(--color-text-muted);
+  --pbk-slate-500:    var(--color-text-muted);
+  --pbk-slate-600:    var(--color-text-secondary);
+  --pbk-slate-700:    var(--color-text-secondary);
+  --pbk-slate-800:    var(--color-text-primary);
+  --pbk-slate-900:    var(--color-text-primary);
+  --pbk-radius:       var(--bs-border-radius-lg);
+  --pbk-radius-sm:    var(--bs-border-radius);
+  --pbk-shadow:       0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
+  --pbk-shadow-md:    0 4px 6px -1px rgba(0,0,0,.1), 0 2px 4px -2px rgba(0,0,0,.1);
+  --pbk-font:         var(--bs-body-font-family);
+  --pbk-mono:         'Roboto Mono', Consolas, monospace;
+  /* scenario accent colours (categorical data encoding, not brand palette) */
+  --c-no-bf:    #eff6ff; --c-no-bf-b:    #bfdbfe; --c-no-bf-t:    #1d4ed8;
+  --c-bf-6:     #f0fdf4; --c-bf-6-b:     #bbf7d0; --c-bf-6-t:     #15803d;
+  --c-bf-1:     #fff7ed; --c-bf-1-b:     #fed7aa; --c-bf-1-t:     #c2410c;
+  --c-bf-3:     #faf5ff; --c-bf-3-b:     #e9d5ff; --c-bf-3-t:     #7e22ce;
+}
+
+/* ── Page wrapper ─────────────────────────────────────────────────────────── */
+.pbk-page {
+  font-family: var(--pbk-font);
+  /* Match the app canvas (body → #page-content) used by every other module;
+     --color-surface-muted is near-white and made this page look off-theme. */
+  background: var(--color-background);
+  min-height: 100vh;
+  padding: 1.5rem;
+}
+
+/* ── Page header ──────────────────────────────────────────────────────────── */
+.pbk-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding-bottom: 1.5rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid var(--pbk-slate-200);
+}
+.pbk-header-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem; height: 2.5rem;
+  background: var(--pbk-primary-10);
+  border-radius: var(--pbk-radius-sm);
+  margin-top: .15rem;
+}
+.pbk-header-icon svg { color: var(--pbk-primary); }
+.pbk-header h1 {
+  font-size: 1.875rem; font-weight: 700;
+  color: var(--pbk-slate-900); margin: 0 0 .35rem;
+}
+.pbk-header p {
+  color: var(--pbk-slate-600); margin: 0; max-width: 42rem; font-size: .925rem;
+}
+
+/* ── Scenario quick-start cards ───────────────────────────────────────────── */
+.pbk-section-title {
+  font-size: 1.05rem; font-weight: 600;
+  color: var(--pbk-slate-800); margin: 0 0 .75rem;
+}
+.pbk-scenarios-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: .75rem;
+  margin-bottom: 2rem;
+}
+.pbk-scenario-card {
+  text-align: left;
+  padding: 1rem;
+  border-radius: var(--pbk-radius);
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: box-shadow .15s ease, transform .15s ease;
+  background: white;
+  font-family: var(--pbk-font);
+}
+.pbk-scenario-card:hover { box-shadow: var(--pbk-shadow-md); transform: translateY(-2px); }
+.pbk-scenario-card:focus-visible { outline: 2px solid var(--pbk-primary); }
+.pbk-scenario-card.active { box-shadow: 0 0 0 3px var(--pbk-primary-20); }
+.pbk-sc-head { display: flex; align-items: center; gap: .5rem; margin-bottom: .4rem; }
+.pbk-sc-head svg { flex-shrink: 0; }
+.pbk-sc-head span { font-weight: 600; font-size: .875rem; }
+.pbk-sc-desc { font-size: .8rem; opacity: .85; line-height: 1.4; }
+.pbk-sc-note { font-size: .75rem; margin-top: .4rem; opacity: .65; line-height: 1.35; }
+
+/* scenario colour variants */
+.pbk-sc-no-bf  { background: var(--c-no-bf); border-color: var(--c-no-bf-b);  color: var(--c-no-bf-t);  }
+.pbk-sc-bf-6   { background: var(--c-bf-6);  border-color: var(--c-bf-6-b);   color: var(--c-bf-6-t);   }
+.pbk-sc-bf-1   { background: var(--c-bf-1);  border-color: var(--c-bf-1-b);   color: var(--c-bf-1-t);   }
+.pbk-sc-bf-3   { background: var(--c-bf-3);  border-color: var(--c-bf-3-b);   color: var(--c-bf-3-t);   }
+
+/* ── Tabs ─────────────────────────────────────────────────────────────────── */
+.pbk-tab-list {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  background: white;
+  border: 1px solid var(--pbk-slate-200);
+  border-radius: var(--pbk-radius-sm);
+  box-shadow: var(--pbk-shadow);
+  margin-bottom: 1.5rem;
+  overflow: hidden;
+}
+.pbk-tab-btn {
+  display: flex; align-items: center; justify-content: center;
+  gap: .45rem;
+  padding: .7rem .5rem;
+  font-size: .875rem; font-weight: 500; font-family: var(--pbk-font);
+  border: none; background: transparent;
+  color: var(--pbk-slate-600);
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.pbk-tab-btn svg { flex-shrink: 0; }
+.pbk-tab-btn:hover { background: var(--pbk-slate-50); color: var(--pbk-slate-800); }
+.pbk-tab-btn.active { background: var(--pbk-primary); color: white; }
+.pbk-tab-btn + .pbk-tab-btn { border-left: 1px solid var(--pbk-slate-200); }
+.pbk-tab-btn.active + .pbk-tab-btn { border-left-color: transparent; }
+
+.pbk-tab-panel { display: none; }
+.pbk-tab-panel.active { display: block; }
+
+/* ── Cards ────────────────────────────────────────────────────────────────── */
+.pbk-card {
+  background: white;
+  border-radius: var(--pbk-radius);
+  border: 1px solid var(--pbk-slate-200);
+  box-shadow: var(--pbk-shadow);
+  overflow: hidden;
+}
+.pbk-card-header {
+  padding: 1.1rem 1.25rem .6rem;
+  border-bottom: 1px solid var(--pbk-slate-100);
+}
+.pbk-card-title {
+  font-size: .9375rem; font-weight: 600;
+  color: var(--pbk-slate-900); margin: 0 0 .2rem;
+}
+.pbk-card-desc {
+  font-size: .825rem; color: var(--pbk-slate-500); margin: 0;
+}
+.pbk-card-body { padding: 1.1rem 1.25rem; }
+/* accent top border variants */
+.pbk-card-accent-primary { border-top: 2px solid var(--pbk-primary); }
+.pbk-card-accent-green   { border-top: 2px solid #10b981; }
+.pbk-card-accent-purple  { border-top: 2px solid #8b5cf6; }
+.pbk-card-accent-amber   { border-top: 2px solid #f59e0b; }
+
+/* ── 3-col grid ───────────────────────────────────────────────────────────── */
+.pbk-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+.pbk-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+.pbk-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+/* ── Form elements ────────────────────────────────────────────────────────── */
+.pbk-label {
+  display: block;
+  font-size: .825rem; font-weight: 500;
+  color: var(--pbk-slate-700); margin-bottom: .35rem;
+}
+.pbk-select, .pbk-input {
+  width: 100%;
+  padding: .5rem .75rem;
+  border: 1px solid var(--pbk-slate-200);
+  border-radius: var(--pbk-radius-sm);
+  font-size: .875rem; font-family: var(--pbk-font);
+  color: var(--pbk-slate-800);
+  background: white;
+  transition: border-color .15s, box-shadow .15s;
+  appearance: none;
+}
+.pbk-select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right .6rem center; padding-right: 2rem; }
+.pbk-select:focus, .pbk-input:focus {
+  outline: none;
+  border-color: var(--pbk-primary);
+  box-shadow: 0 0 0 3px var(--pbk-primary-10);
+}
+.pbk-form-group { margin-bottom: 1rem; }
+.pbk-form-group:last-child { margin-bottom: 0; }
+
+/* ── Sliders ──────────────────────────────────────────────────────────────── */
+.pbk-slider-row { display: flex; align-items: center; gap: .75rem; }
+.pbk-slider-val {
+  font-family: var(--pbk-mono);
+  font-size: .8rem; font-weight: 600;
+  color: var(--pbk-primary); min-width: 5.5rem; text-align: right;
+}
+.pbk-range {
+  -webkit-appearance: none; appearance: none;
+  flex: 1; height: 5px;
+  background: var(--pbk-slate-200);
+  border-radius: 99px;
+  outline: none;
+  cursor: pointer;
+}
+.pbk-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 16px; height: 16px;
+  background: var(--pbk-primary);
+  border-radius: 50%;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0,0,0,.2);
+  cursor: pointer;
+  transition: box-shadow .1s;
+}
+.pbk-range::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 0 4px var(--pbk-primary-20);
+}
+.pbk-range::-moz-range-thumb {
+  width: 16px; height: 16px;
+  background: var(--pbk-primary); border-radius: 50%;
+  border: 2px solid white; cursor: pointer;
+}
+.pbk-slider-label-row {
+  display: flex; justify-content: space-between;
+  font-size: .825rem; margin-bottom: .35rem;
+}
+.pbk-slider-label-row .pbk-label { margin: 0; }
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+.pbk-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: .45rem;
+  padding: .55rem 1.1rem;
+  font-size: .875rem; font-weight: 500; font-family: var(--pbk-font);
+  border-radius: var(--pbk-radius-sm);
+  border: 1px solid transparent;
+  cursor: pointer; transition: background .15s, opacity .15s;
+}
+.pbk-btn-primary {
+  background: var(--pbk-primary); color: white;
+  border-color: var(--pbk-primary);
+}
+.pbk-btn-primary:hover { background: #0780a0; border-color: #0780a0; }
+.pbk-btn-outline {
+  background: white; color: var(--pbk-slate-700);
+  border-color: var(--pbk-slate-200);
+}
+.pbk-btn-outline:hover { background: var(--pbk-slate-50); border-color: var(--pbk-slate-300); }
+.pbk-btn-lg {
+  padding: .75rem 1.5rem; font-size: 1rem;
+  width: 100%; border-radius: var(--pbk-radius);
+  margin-top: .25rem;
+}
+.pbk-btn:disabled { opacity: .55; cursor: not-allowed; }
+.pbk-spin {
+  width: 16px; height: 16px;
+  border: 2px solid rgba(255,255,255,.4);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: pbk-spin .7s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes pbk-spin { to { transform: rotate(360deg); } }
+
+/* ── Info panel (scenario details) ───────────────────────────────────────── */
+.pbk-info-panel {
+  background: var(--pbk-slate-50);
+  border-radius: var(--pbk-radius-sm);
+  padding: .75rem; margin-top: .75rem;
+}
+.pbk-info-row {
+  display: flex; justify-content: space-between;
+  font-size: .8rem; padding: .2rem 0;
+}
+.pbk-info-row span:first-child { color: var(--pbk-slate-500); }
+.pbk-info-row span:last-child  { font-weight: 500; color: var(--pbk-slate-800); }
+
+/* ── Status alerts ────────────────────────────────────────────────────────── */
+.pbk-alert {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .65rem .9rem; border-radius: var(--pbk-radius-sm);
+  font-size: .875rem; margin-top: .75rem;
+}
+.pbk-alert-info    { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+.pbk-alert-success { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+.pbk-alert-danger  { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+.pbk-alert.d-none  { display: none; }
+
+/* ── Chart container ──────────────────────────────────────────────────────── */
+.pbk-chart-wrap { position: relative; height: 400px; }
+.pbk-chart-empty {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  height: 280px; gap: .75rem;
+  color: var(--pbk-slate-400); text-align: center;
+}
+.pbk-chart-empty svg { opacity: .3; }
+.pbk-chart-empty p { font-size: .9rem; margin: 0; }
+
+/* ── Results metric cards ─────────────────────────────────────────────────── */
+.pbk-metric-card {
+  background: white; border-radius: var(--pbk-radius);
+  border: 1px solid var(--pbk-slate-200);
+  border-top: 2px solid var(--pbk-primary);
+  box-shadow: var(--pbk-shadow);
+  padding: 1.1rem 1.25rem;
+}
+.pbk-metric-label { font-size: .75rem; color: var(--pbk-slate-500); margin-bottom: .25rem; }
+.pbk-metric-value {
+  font-size: 2rem; font-weight: 700;
+  color: var(--pbk-slate-900); line-height: 1.1;
+  font-family: var(--pbk-mono);
+}
+.pbk-metric-unit { font-size: .75rem; color: var(--pbk-slate-400); margin-top: .15rem; }
+
+/* ── Exposure table ───────────────────────────────────────────────────────── */
+.pbk-exp-row {
+  display: flex; align-items: center; gap: 1rem;
+  padding: .7rem .9rem;
+  border-radius: var(--pbk-radius-sm);
+  background: var(--pbk-slate-50);
+  border: 1px solid var(--pbk-slate-100);
+  margin-bottom: .5rem;
+}
+.pbk-exp-label { font-size: .875rem; font-weight: 500; min-width: 7rem; }
+.pbk-exp-stats { display: flex; gap: 1.5rem; flex: 1; font-size: .8rem; }
+.pbk-exp-stats span { color: var(--pbk-slate-500); }
+.pbk-exp-stats b   { font-family: var(--pbk-mono); font-weight: 600; color: var(--pbk-slate-800); }
+
+/* ── Equations display ────────────────────────────────────────────────────── */
+.pbk-eq-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+}
+.pbk-eq-box { }
+.pbk-eq-label { font-size: .75rem; color: var(--pbk-slate-500); margin-bottom: .35rem; }
+.pbk-eq-code {
+  width: 100%; min-height: 7rem; padding: .75rem;
+  font-family: var(--pbk-mono); font-size: .75rem;
+  background: #0D1117; color: #e6edf3;
+  border-radius: var(--pbk-radius-sm);
+  border: 1px solid #30363d;
+  resize: none;
+  line-height: 1.5;
+}
+.pbk-eq-code:focus { outline: 2px solid var(--pbk-primary); }
+
+/* ── Organ toggle pills ───────────────────────────────────────────────────── */
+.pbk-organ-pills { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
+.pbk-pill {
+  display: inline-flex; align-items: center; gap: .4rem;
+  padding: .3rem .75rem;
+  border-radius: 99px; font-size: .8rem; font-weight: 500;
+  border: 1px solid var(--pbk-slate-200);
+  color: var(--pbk-slate-500);
+  cursor: pointer; background: white;
+  font-family: var(--pbk-font);
+  transition: border-color .1s, color .1s, background .1s;
+}
+.pbk-pill.active {
+  border-color: var(--pbk-primary);
+  background: var(--pbk-primary-10);
+  color: var(--pbk-primary);
+}
+.pbk-pill .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+/* ── Artifact section ─────────────────────────────────────────────────────── */
+.pbk-artifacts-wrap { margin-top: 2rem; }
+
+/* ── Utility ──────────────────────────────────────────────────────────────── */
+.pbk-space { margin-bottom: 1.25rem; }
+.pbk-gap   { margin-top: 1.25rem; }
+.pbk-divider { height: 1px; background: var(--pbk-slate-200); margin: 1.25rem 0; }
+
+/* ── Responsive tweaks ────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .pbk-tab-btn span.tab-label { display: none; }
+  .pbk-header h1 { font-size: 1.4rem; }
+}
+</style>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     PAGE
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="pbk-page">
+
+  <!-- Page Header -->
+  <div class="pbk-header">
+    <div class="pbk-header-icon">
+      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/>
+      </svg>
+    </div>
+    <div>
+      <h1>PBK Simulations</h1>
+      <p>Lifetime Physiologically Based Kinetic (PBK) modelling for PFAS/PFOA exposure — simulate
+         body burden from birth across breastfeeding scenarios using the <code>lifetime_pbpk.xml</code> SBML model.</p>
+    </div>
+  </div>
+
+  <!-- ── Quick-Start Scenarios ──────────────────────────────────────────── -->
+  <p class="pbk-section-title">Quick-Start Scenarios</p>
+  <div class="pbk-scenarios-grid" id="scenario-cards">
+    <button class="pbk-scenario-card pbk-sc-no-bf" onclick="loadScenario('no_bf')" id="sc-no_bf">
+      <div class="pbk-sc-head">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+        </svg>
+        <span>No Breastfeeding</span>
+      </div>
+      <p class="pbk-sc-desc">Dietary PFAS intake only from birth</p>
+      <p class="pbk-sc-note">Baseline scenario. StopBreastmilk = 0 min. Steady dietary exposure throughout early life.</p>
+    </button>
+
+    <button class="pbk-scenario-card pbk-sc-bf-6" onclick="loadScenario('bf_6mo')" id="sc-bf_6mo">
+      <div class="pbk-sc-head">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+        <span>Breastfed 6 Months</span>
+      </div>
+      <p class="pbk-sc-desc">WHO short-term breastfeeding</p>
+      <p class="pbk-sc-note">StopBreastmilk = 262 800 min. Elevated infant PFAS load during nursing period.</p>
+    </button>
+
+    <button class="pbk-scenario-card pbk-sc-bf-1" onclick="loadScenario('bf_1yr')" id="sc-bf_1yr">
+      <div class="pbk-sc-head">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          <path d="m9 12 2 2 4-4"/>
+        </svg>
+        <span>Breastfed 1 Year</span>
+      </div>
+      <p class="pbk-sc-desc">Extended breastfeeding — 12 months</p>
+      <p class="pbk-sc-note">StopBreastmilk = 525 600 min. Prolonged lactational transfer of PFAS.</p>
+    </button>
+
+    <button class="pbk-scenario-card pbk-sc-bf-3" onclick="loadScenario('bf_3yr')" id="sc-bf_3yr">
+      <div class="pbk-sc-head">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+        </svg>
+        <span>Breastfed 3 Years</span>
+      </div>
+      <p class="pbk-sc-desc">Long-term breastfeeding — 36 months</p>
+      <p class="pbk-sc-note">StopBreastmilk = 1 576 800 min. Maximum cumulative lactational exposure.</p>
+    </button>
+  </div>
+
+  <!-- ── Tabs ───────────────────────────────────────────────────────────── -->
+  <div class="pbk-tab-list" role="tablist">
+    <button class="pbk-tab-btn active" data-tab="setup" role="tab" aria-selected="true" onclick="switchTab('setup')">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+        <circle cx="12" cy="12" r="3"/>
+      </svg>
+      <span class="tab-label">Setup</span>
+    </button>
+    <button class="pbk-tab-btn" data-tab="equations" role="tab" aria-selected="false" onclick="switchTab('equations')">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/>
+        <line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+      </svg>
+      <span class="tab-label">Equations &amp; Parameters</span>
+    </button>
+    <button class="pbk-tab-btn" data-tab="simulation" role="tab" aria-selected="false" onclick="switchTab('simulation')">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="5 3 19 12 5 21 5 3"/>
+      </svg>
+      <span class="tab-label">Simulation</span>
+    </button>
+    <button class="pbk-tab-btn" data-tab="results" role="tab" aria-selected="false" onclick="switchTab('results')">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>
+        <line x1="6" y1="20" x2="6" y2="14"/>
+      </svg>
+      <span class="tab-label">Results</span>
+    </button>
+  </div>
+
+  <!-- ══════════ SETUP TAB ══════════ -->
+  <div class="pbk-tab-panel active" id="tab-setup">
+    <div class="pbk-grid-3">
+
+      <!-- Card 1: Breastfeeding Scenario -->
+      <div class="pbk-card pbk-card-accent-primary">
+        <div class="pbk-card-header">
+          <p class="pbk-card-title">Exposure Scenario</p>
+          <p class="pbk-card-desc">Select a breastfeeding scenario for PFAS lifetime simulation</p>
+        </div>
+        <div class="pbk-card-body">
+          <div class="pbk-form-group">
+            <label class="pbk-label" for="scenario-select">Breastfeeding scenario</label>
+            <select class="pbk-select" id="scenario-select" onchange="onScenarioChange()">
+              {% for s in scenarios %}
+              <option value="{{ s.label }}">{{ s.description }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="pbk-info-panel" id="scenario-info">
+            <div class="pbk-info-row">
+              <span>Stop breastmilk</span>
+              <span id="info-stop">0 min (no lactation)</span>
+            </div>
+            <div class="pbk-info-row">
+              <span>Exposure type</span>
+              <span id="info-type">Dietary only</span>
+            </div>
+            <div class="pbk-info-row">
+              <span>Simulation window</span>
+              <span>Birth → 6.77 yrs (3 561 120 min)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 2: Exposure Parameters -->
+      <div class="pbk-card pbk-card-accent-green">
+        <div class="pbk-card-header">
+          <p class="pbk-card-title">Exposure Parameters</p>
+          <p class="pbk-card-desc">Configure chemical and dietary intake values</p>
+        </div>
+        <div class="pbk-card-body">
+
+          <!-- HalfLife slider -->
+          <div class="pbk-form-group">
+            <div class="pbk-slider-label-row">
+              <label class="pbk-label" for="hl-slider">Chemical half-life</label>
+              <span class="pbk-slider-val"><span id="hl-val">2.5</span> yr</span>
+            </div>
+            <div class="pbk-slider-row">
+              <input type="range" class="pbk-range" id="hl-slider"
+                     min="0.1" max="10" step="0.1" value="2.5"
+                     oninput="document.getElementById('hl-val').textContent = parseFloat(this.value).toFixed(1)">
+            </div>
+          </div>
+
+          <!-- RateInj input -->
+          <div class="pbk-form-group">
+            <label class="pbk-label" for="rateinj-input">Dietary intake <small style="color:var(--pbk-slate-400)">(ng/kg/min)</small></label>
+            <input type="number" class="pbk-input" id="rateinj-input"
+                   value="0.451695" min="0" step="0.0001">
+          </div>
+
+          <!-- BirthYear input -->
+          <div class="pbk-form-group" style="margin-bottom:0">
+            <label class="pbk-label" for="birthyear-input">Birth year</label>
+            <input type="number" class="pbk-input" id="birthyear-input"
+                   value="2007" min="1950" max="2050">
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 3: SBML Model Info -->
+      <div class="pbk-card pbk-card-accent-purple">
+        <div class="pbk-card-header">
+          <p class="pbk-card-title">SBML Model</p>
+          <p class="pbk-card-desc">Loaded server-side — <code>lifetime_pbpk.xml</code></p>
+        </div>
+        <div class="pbk-card-body">
+          <div class="pbk-info-panel">
+            <div class="pbk-info-row">
+              <span>Model file</span>
+              <span style="font-family:var(--pbk-mono);font-size:.75rem">lifetime_pbpk.xml</span>
+            </div>
+            <div class="pbk-info-row">
+              <span>Integrator</span>
+              <span>scipy LSODA</span>
+            </div>
+            <div class="pbk-info-row">
+              <span>Compound</span>
+              <span>PFAS / PFOA</span>
+            </div>
+            <div class="pbk-info-row">
+              <span>Resolution</span>
+              <span>3 562 time steps</span>
+            </div>
+            <div class="pbk-info-row">
+              <span>Output variables</span>
+              <span>C_ven · C_art · C_milk · Age · BDW</span>
+            </div>
+          </div>
+          <div class="pbk-alert pbk-alert-info" style="margin-top:.9rem">
+            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
+                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            Simulation runs on the server — 30–90 s per scenario.
+          </div>
+        </div>
+      </div>
+    </div><!-- /pbk-grid-3 -->
+
+    <!-- Status alerts -->
+    <div class="pbk-alert pbk-alert-info d-none" id="run-status">
+      <div class="pbk-spin"></div>
+      Running simulation — this may take 30–90 seconds…
+    </div>
+    <div class="pbk-alert pbk-alert-danger d-none" id="run-error"></div>
+
+    <!-- Run button -->
+    <button class="pbk-btn pbk-btn-primary pbk-btn-lg" id="run-btn" onclick="runSimulation()">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="5 3 19 12 5 21 5 3"/>
+      </svg>
+      Run PBK Simulation
+    </button>
+  </div><!-- /tab-setup -->
+
+  <!-- ══════════ EQUATIONS & PARAMETERS TAB ══════════ -->
+  <div class="pbk-tab-panel" id="tab-equations">
+
+    <!-- Key parameter sliders -->
+    <div class="pbk-card pbk-space">
+      <div class="pbk-card-header">
+        <p class="pbk-card-title">Key Chemical Parameters</p>
+        <p class="pbk-card-desc">Adjust PFAS physicochemical values — changes apply on next simulation run.</p>
+      </div>
+      <div class="pbk-card-body">
+        <div class="pbk-grid-3">
+
+          <div>
+            <div class="pbk-slider-label-row">
+              <label class="pbk-label">Chemical half-life (yr)</label>
+              <span class="pbk-slider-val"><span id="eq-hl-val">2.5</span> yr</span>
+            </div>
+            <input type="range" class="pbk-range" id="eq-hl-slider"
+                   min="0.1" max="10" step="0.1" value="2.5"
+                   oninput="syncSlider('eq-hl-slider','hl-slider','eq-hl-val')">
+            <div style="display:flex;justify-content:space-between;font-size:.7rem;color:var(--pbk-slate-400);margin-top:.25rem">
+              <span>0.1 yr</span><span>10 yr</span>
+            </div>
+          </div>
+
+          <div>
+            <div class="pbk-slider-label-row">
+              <label class="pbk-label">Free fraction in plasma (–)</label>
+              <span class="pbk-slider-val"><span id="eq-free-val">0.020</span></span>
+            </div>
+            <input type="range" class="pbk-range" id="eq-free-slider"
+                   min="0.001" max="0.5" step="0.001" value="0.020"
+                   oninput="document.getElementById('eq-free-val').textContent = parseFloat(this.value).toFixed(3)">
+            <div style="display:flex;justify-content:space-between;font-size:.7rem;color:var(--pbk-slate-400);margin-top:.25rem">
+              <span>0.001</span><span>0.5</span>
+            </div>
+          </div>
+
+          <div>
+            <div class="pbk-slider-label-row">
+              <label class="pbk-label">Dietary intake (ng/kg/min)</label>
+              <span class="pbk-slider-val"><span id="eq-rate-val">0.452</span></span>
+            </div>
+            <input type="range" class="pbk-range" id="eq-rate-slider"
+                   min="0" max="5" step="0.001" value="0.452"
+                   oninput="syncRateSlider()">
+            <div style="display:flex;justify-content:space-between;font-size:.7rem;color:var(--pbk-slate-400);margin-top:.25rem">
+              <span>0</span><span>5 ng/kg/min</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tissue partition coefficients table -->
+    <div class="pbk-card pbk-space">
+      <div class="pbk-card-header">
+        <p class="pbk-card-title">Default PFAS Tissue-Plasma Partition Coefficients (Kp)</p>
+        <p class="pbk-card-desc">Fixed values from the SBML model file. These are loaded at server start and cannot be modified here.</p>
+      </div>
+      <div class="pbk-card-body">
+        <div class="pbk-grid-3" style="gap:.75rem">
+          {% set kp_items = [
+            ("Blood", "PC_blood_over_air", "–"),
+            ("Plasma", "PC_22", "1.00"), ("Liver", "PC_1", "0.58"),
+            ("Kidney", "PC_0", "0.23"), ("Fat", "PC_3", "0.08"),
+            ("Bone", "PC_4", "0.10"), ("Brain", "PC_5", "0.58"),
+            ("Lung", "PC_7", "0.10"), ("Muscle", "PC_12", "0.38"),
+            ("Skin", "PC_15", "0.63"), ("Thyroid", "PC_10", "0.10"),
+          ] %}
+          {% for name, key, val in kp_items %}
+          <div class="pbk-info-panel" style="padding:.5rem .75rem">
+            <div class="pbk-info-row">
+              <span>{{ name }} <small style="color:var(--pbk-slate-400)">({{ key }})</small></span>
+              <span style="font-family:var(--pbk-mono)">{{ val }}</span>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Mass-balance equations -->
+    <div class="pbk-card pbk-space">
+      <div class="pbk-card-header">
+        <p class="pbk-card-title">Mass-Balance Differential Equations</p>
+        <p class="pbk-card-desc">Key ODEs from the PFAS lifetime SBML model. Edit for documentation purposes.</p>
+      </div>
+      <div class="pbk-card-body">
+        <div class="pbk-eq-grid" id="eq-grid">
+          <!-- populated by JS -->
+        </div>
+      </div>
+    </div>
+
+    <button class="pbk-btn pbk-btn-primary pbk-btn-lg" onclick="applyEqParams(); switchTab('setup')">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="5 3 19 12 5 21 5 3"/>
+      </svg>
+      Apply Parameters &amp; Go to Setup
+    </button>
+  </div><!-- /tab-equations -->
+
+  <!-- ══════════ SIMULATION TAB ══════════ -->
+  <div class="pbk-tab-panel" id="tab-simulation">
+
+    <!-- Organ distribution chart -->
+    <div class="pbk-card pbk-space">
+      <div class="pbk-card-header">
+        <p class="pbk-card-title">Venous PFAS Concentration Over Time</p>
+        <p class="pbk-card-desc">C_ven — venous blood concentration (mg/L) from birth to ~6.77 years</p>
+      </div>
+      <div class="pbk-card-body">
+        <div id="main-chart-wrap">
+          <div class="pbk-chart-empty" id="main-chart-empty">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24"
+                 fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/>
+            </svg>
+            <p>Run a simulation on the Setup tab to see the concentration profile</p>
+          </div>
+          <div style="display:none;position:relative;height:400px" id="main-chart-container">
+            <canvas id="main-chart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Variable overlay toggles -->
+    <div class="pbk-card pbk-space">
+      <div class="pbk-card-header">
+        <p class="pbk-card-title">Output Variable Comparison</p>
+        <p class="pbk-card-desc">Toggle variables to compare in the chart below</p>
+      </div>
+      <div class="pbk-card-body">
+        <div class="pbk-organ-pills" id="var-pills">
+          <button class="pbk-pill active" data-var="C_ven" onclick="toggleVar(this)">
+            <span class="dot" style="background:var(--color-primary)"></span>C_ven (venous)
+          </button>
+          <button class="pbk-pill" data-var="C_art" onclick="toggleVar(this)">
+            <span class="dot" style="background:#dc2626"></span>C_art (arterial)
+          </button>
+          <button class="pbk-pill" data-var="C_milk" onclick="toggleVar(this)">
+            <span class="dot" style="background:#10b981"></span>C_milk (breastmilk)
+          </button>
+          <button class="pbk-pill" data-var="BDW" onclick="toggleVar(this)">
+            <span class="dot" style="background:#f59e0b"></span>BDW (body burden)
+          </button>
+        </div>
+        <div id="cmp-chart-wrap">
+          <div class="pbk-chart-empty" id="cmp-chart-empty" style="height:200px">
+            <p style="font-size:.8rem">Run simulation to enable comparison</p>
+          </div>
+          <div style="display:none;position:relative;height:280px" id="cmp-chart-container">
+            <canvas id="cmp-chart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Simulate again from this tab -->
+    <button class="pbk-btn pbk-btn-primary pbk-btn-lg" id="run-btn-sim" onclick="runSimulation()">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="5 3 19 12 5 21 5 3"/>
+      </svg>
+      Re-run Simulation
+    </button>
+  </div><!-- /tab-simulation -->
+
+  <!-- ══════════ RESULTS TAB ══════════ -->
+  <div class="pbk-tab-panel" id="tab-results">
+
+    <!-- Summary metrics -->
+    <div class="pbk-grid-4 pbk-space" id="results-metrics">
+      <div class="pbk-metric-card">
+        <p class="pbk-metric-label">Peak venous conc.</p>
+        <p class="pbk-metric-value" id="res-peak-c">—</p>
+        <p class="pbk-metric-unit">mg/L</p>
+      </div>
+      <div class="pbk-metric-card">
+        <p class="pbk-metric-label">Age at peak</p>
+        <p class="pbk-metric-value" id="res-peak-age">—</p>
+        <p class="pbk-metric-unit">years</p>
+      </div>
+      <div class="pbk-metric-card">
+        <p class="pbk-metric-label">Final venous conc.</p>
+        <p class="pbk-metric-value" id="res-final-c">—</p>
+        <p class="pbk-metric-unit">mg/L</p>
+      </div>
+      <div class="pbk-metric-card">
+        <p class="pbk-metric-label">Final age</p>
+        <p class="pbk-metric-value" id="res-final-age">—</p>
+        <p class="pbk-metric-unit">years</p>
+      </div>
+    </div>
+
+    <!-- Time-averaged exposure table -->
+    <div class="pbk-card pbk-space">
+      <div class="pbk-card-header">
+        <p class="pbk-card-title">Compartment Exposure Summary</p>
+        <p class="pbk-card-desc">Mean, peak, and final concentration for key output variables</p>
+      </div>
+      <div class="pbk-card-body">
+        <div id="exposure-table">
+          <p style="color:var(--pbk-slate-400);font-size:.875rem;text-align:center;padding:2rem 0">
+            Run a simulation to see compartment exposure metrics
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scenario metadata card -->
+    <div class="pbk-card pbk-space" id="run-meta-card" style="display:none">
+      <div class="pbk-card-header">
+        <p class="pbk-card-title">Last Run Parameters</p>
+        <p class="pbk-card-desc">Parameter values used in the most recent simulation</p>
+      </div>
+      <div class="pbk-card-body">
+        <div class="pbk-grid-2">
+          <div class="pbk-info-panel">
+            <div class="pbk-info-row"><span>Scenario</span><span id="meta-scenario">—</span></div>
+            <div class="pbk-info-row"><span>HalfLife</span><span id="meta-hl">—</span></div>
+            <div class="pbk-info-row"><span>RateInj</span><span id="meta-rate">—</span></div>
+            <div class="pbk-info-row"><span>BirthYear</span><span id="meta-year">—</span></div>
+          </div>
+          <div class="pbk-info-panel">
+            <div class="pbk-info-row"><span>Time points returned</span><span id="meta-rows">—</span></div>
+            <div class="pbk-info-row"><span>t_end (min)</span><span id="meta-tend">—</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Export -->
+    <button class="pbk-btn pbk-btn-outline" id="download-btn"
+            style="display:none;margin-bottom:.75rem" onclick="exportCSV()">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      Export Timeseries (CSV)
+    </button>
+  </div><!-- /tab-results -->
+
+  <!-- ══════════ RUN ARTIFACTS ══════════ -->
+  {% if can_view_artifacts %}
+  <div class="pbk-artifacts-wrap">
+    <div class="pbk-card">
+      <div class="pbk-card-header" style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <p class="pbk-card-title">Run Artifacts</p>
+          <p class="pbk-card-desc">jpg / png / mp4 / vtk &nbsp;·&nbsp; ≤ 200 MB per file</p>
+        </div>
+      </div>
+      <div class="pbk-card-body">
+        <div style="display:flex;gap:.5rem;align-items:flex-end;margin-bottom:.75rem">
+          <div style="flex:1;max-width:220px">
+            <label class="pbk-label" for="artifact-run-id">Run ID</label>
+            <input type="number" class="pbk-input" id="artifact-run-id" min="1" placeholder="e.g. 42">
+          </div>
+          <button class="pbk-btn pbk-btn-outline" id="artifact-load-btn" onclick="loadArtifacts(parseInt(document.getElementById('artifact-run-id').value))">Load</button>
+        </div>
+
+        {% if can_upload %}
+        <form id="artifact-upload-form" style="display:none;margin-bottom:.75rem">
+          <div style="display:flex;gap:.5rem;align-items:flex-end">
+            <div style="flex:1">
+              <label class="pbk-label" for="artifact-file">Upload artifact</label>
+              <input type="file" class="pbk-input" id="artifact-file"
+                     accept=".jpg,.jpeg,.png,.mp4,.vtk,.vtu,.vtp" style="padding:.4rem">
+            </div>
+            <button type="submit" class="pbk-btn pbk-btn-primary" id="artifact-upload-btn">Upload</button>
+          </div>
+          <div id="artifact-progress-wrap" style="display:none;margin-top:.5rem;height:6px;background:var(--pbk-slate-200);border-radius:99px;overflow:hidden">
+            <div id="artifact-progress" style="height:100%;width:0;background:var(--pbk-primary);transition:width .2s"></div>
+          </div>
+        </form>
+        {% endif %}
+
+        <div class="pbk-alert pbk-alert-danger d-none" id="artifact-error"></div>
+        <div id="artifact-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1rem"></div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+</div><!-- /pbk-page -->
+
+<!-- ══ Chart.js ══ -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ── Scenario metadata ──────────────────────────────────────────────────── */
+  const SCENARIOS = {
+    no_bf:  { stop: 0,         label: "No breastfeeding",  type: "Dietary only",         note: "0 min (no lactation)" },
+    bf_6mo: { stop: 262800,    label: "Breastfed 6 months",type: "Dietary + lactational", note: "262 800 min (6 months)" },
+    bf_1yr: { stop: 525600,    label: "Breastfed 1 year",  type: "Dietary + lactational", note: "525 600 min (1 year)"  },
+    bf_3yr: { stop: 1576800,   label: "Breastfed 3 years", type: "Dietary + lactational", note: "1 576 800 min (3 years)"},
+  };
+
+  /* ── Model equations text ───────────────────────────────────────────────── */
+  const EQ_DEFS = {
+    "Venous blood":
+`dQ_ven/dt =
+  Σ tissue outflows
+  - cardiac output × C_ven
+  + lactation clearance`,
+    "Arterial blood":
+`dQ_art/dt =
+  cardiac output × C_ven
+  - Σ organ perfusion flows`,
+    "Plasma free":
+`Free = Free_no_pgcy
+  (constant fraction unbound
+  in plasma — PFAS-specific)`,
+    "Elimination":
+`dQ_elim_plasma/dt =
+  Ke_renal_input × Q_ven
+  + Ke_bile × Q_liver`,
+    "Lactation":
+`Q_lact = C_milk × milk_flow
+  C_milk = f(C_ven, PC_29)
+  active during StopBreastmilk`,
+    "Body burden":
+`BDW = Σᵢ Qᵢ · (mass in compartment i)
+  tracks cumulative PFAS
+  load across life stages`,
+    "Age scaling":
+`BodyWeight = f(Age, BDW)
+  organ volumes scaled with
+  Nader growth equations`,
+    "Dietary intake":
+`RateInj_Lact = RateInj ×
+  Frac_Intake × Intake_var
+  stage-specific multipliers`,
+  };
+
+  /* ── State ──────────────────────────────────────────────────────────────── */
+  let _lastResult = null;
+  let _mainChart  = null;
+  let _cmpChart   = null;
+  let _activeVars = ["C_ven"];
+  let _currentRunId = null;
+
+  // Chart series are categorical data-encoding colours. The primary series
+  // (C_ven) mirrors the shared brand token --color-primary (#1E5B5E); the
+  // rest are distinct data hues with no shared-token equivalent.
+  const VAR_COLORS = {
+    C_ven: "#1E5B5E", C_art: "#dc2626",
+    C_milk: "#10b981", BDW: "#f59e0b",
+  };
+
+  /* ── Tab switching ──────────────────────────────────────────────────────── */
+  window.switchTab = function (name) {
+    document.querySelectorAll(".pbk-tab-panel").forEach(p => p.classList.remove("active"));
+    document.querySelectorAll(".pbk-tab-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.tab === name);
+      b.setAttribute("aria-selected", b.dataset.tab === name);
+    });
+    document.getElementById("tab-" + name).classList.add("active");
+  };
+
+  /* ── Scenario quick-load ────────────────────────────────────────────────── */
+  window.loadScenario = function (key) {
+    document.getElementById("scenario-select").value = key;
+    onScenarioChange();
+    // highlight active card
+    document.querySelectorAll(".pbk-scenario-card").forEach(c => c.classList.remove("active"));
+    const card = document.getElementById("sc-" + key);
+    if (card) card.classList.add("active");
+    switchTab("setup");
+  };
+
+  /* ── Scenario info update ───────────────────────────────────────────────── */
+  window.onScenarioChange = function () {
+    const key = document.getElementById("scenario-select").value;
+    const s = SCENARIOS[key] || {};
+    document.getElementById("info-stop").textContent = s.note || key;
+    document.getElementById("info-type").textContent = s.type || "—";
+    // sync card highlight
+    document.querySelectorAll(".pbk-scenario-card").forEach(c => c.classList.remove("active"));
+    const card = document.getElementById("sc-" + key);
+    if (card) card.classList.add("active");
+  };
+
+  /* ── Slider sync between Setup & Equations tabs ─────────────────────────── */
+  window.syncSlider = function (src, dest, valId) {
+    const v = parseFloat(document.getElementById(src).value);
+    document.getElementById(dest).value = v;
+    document.getElementById("hl-val").textContent = parseFloat(document.getElementById("hl-slider").value).toFixed(1);
+    document.getElementById(valId).textContent = v.toFixed(1);
+  };
+
+  window.syncRateSlider = function () {
+    const v = parseFloat(document.getElementById("eq-rate-slider").value);
+    document.getElementById("rateinj-input").value = v.toFixed(4);
+    document.getElementById("eq-rate-val").textContent = v.toFixed(3);
+  };
+
+  window.applyEqParams = function () {
+    const hl = parseFloat(document.getElementById("eq-hl-slider").value);
+    document.getElementById("hl-slider").value = hl;
+    document.getElementById("hl-val").textContent = hl.toFixed(1);
+  };
+
+  /* ── Populate equations grid ────────────────────────────────────────────── */
+  (function initEquations() {
+    const grid = document.getElementById("eq-grid");
+    Object.entries(EQ_DEFS).forEach(([label, eq]) => {
+      const div = document.createElement("div");
+      div.className = "pbk-eq-box";
+      div.innerHTML = `<p class="pbk-eq-label">${label} compartment</p>
+                       <textarea class="pbk-eq-code" spellcheck="false">${eq}</textarea>`;
+      grid.appendChild(div);
+    });
+  })();
+
+  /* ── Run simulation ─────────────────────────────────────────────────────── */
+  window.runSimulation = function () {
+    const runBtn  = document.getElementById("run-btn");
+    const runBtnS = document.getElementById("run-btn-sim");
+    const status  = document.getElementById("run-status");
+    const errBox  = document.getElementById("run-error");
+
+    const scenario  = document.getElementById("scenario-select").value;
+    const halfLife  = parseFloat(document.getElementById("hl-slider").value);
+    const rateInj   = parseFloat(document.getElementById("rateinj-input").value);
+    const birthYear = parseFloat(document.getElementById("birthyear-input").value);
+
+    [runBtn, runBtnS].forEach(b => {
+      if (!b) return;
+      b.disabled = true;
+      b.innerHTML = '<div class="pbk-spin"></div> Running Simulation…';
+    });
+    status.classList.remove("d-none");
+    errBox.classList.add("d-none");
+
+    fetch("/model/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scenario, HalfLife: halfLife, RateInj: rateInj, BirthYear: birthYear }),
+    })
+    .then(r => r.json().then(d => ({ ok: r.ok, data: d })))
+    .then(({ ok, data }) => {
+      if (!ok) throw new Error(data.error || "Simulation failed");
+      _lastResult = data;
+      renderCharts(data);
+      renderResults(data);
+      renderExposureTable(data);
+      renderRunMeta(data, scenario, halfLife, rateInj, birthYear);
+      switchTab("simulation");
+    })
+    .catch(err => {
+      errBox.textContent = "Error: " + err.message;
+      errBox.classList.remove("d-none");
+    })
+    .finally(() => {
+      [runBtn, runBtnS].forEach(b => {
+        if (!b) return;
+        b.disabled = false;
+        b.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg> Run PBK Simulation`;
+      });
+      status.classList.add("d-none");
+    });
+  };
+
+  /* ── Chart rendering ────────────────────────────────────────────────────── */
+  function tsToXY(ts, varKey) {
+    // downsample to ~300 points for chart performance
+    const step = Math.max(1, Math.floor(ts.length / 300));
+    return ts.filter((_, i) => i % step === 0).map(r => ({
+      x: r.Age != null ? parseFloat(r.Age.toFixed(3)) : r.time,
+      y: r[varKey] != null ? r[varKey] : null,
+    }));
+  }
+
+  function renderCharts(d) {
+    const ts = d.timeseries;
+    // show containers, hide empties
+    document.getElementById("main-chart-empty").style.display = "none";
+    document.getElementById("main-chart-container").style.display = "block";
+    document.getElementById("cmp-chart-empty").style.display    = "none";
+    document.getElementById("cmp-chart-container").style.display = "block";
+
+    // main chart — always C_ven
+    const mainData = tsToXY(ts, "C_ven");
+    if (_mainChart) _mainChart.destroy();
+    _mainChart = new Chart(document.getElementById("main-chart"), {
+      type: "line",
+      data: {
+        datasets: [{
+          label: "C_ven (mg/L)",
+          data: mainData,
+          borderColor: VAR_COLORS.C_ven,
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.2,
+          fill: {
+            target: "origin",
+            above: "rgba(8,145,178,.06)",
+          },
+        }],
+      },
+      options: {
+        animation: false,
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: true },
+          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toExponential(3) : "N/A"}` } },
+        },
+        scales: {
+          x: { type: "linear", title: { display: true, text: "Age (years)" }, ticks: { maxTicksLimit: 8 } },
+          y: { title: { display: true, text: "Venous conc. (mg/L)" } },
+        },
+      },
+    });
+
+    renderCmpChart(ts);
+  }
+
+  function renderCmpChart(ts) {
+    if (!ts) return;
+    const datasets = _activeVars
+      .filter(v => ts[0] && v in ts[0])
+      .map(v => ({
+        label: v + " (mg/L)",
+        data: tsToXY(ts, v),
+        borderColor: VAR_COLORS[v] || "#6b7280",
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.2,
+      }));
+
+    if (_cmpChart) _cmpChart.destroy();
+    _cmpChart = new Chart(document.getElementById("cmp-chart"), {
+      type: "line",
+      data: { datasets },
+      options: {
+        animation: false,
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: true } },
+        scales: {
+          x: { type: "linear", title: { display: true, text: "Age (years)" }, ticks: { maxTicksLimit: 8 } },
+          y: { title: { display: true, text: "Concentration (mg/L)" } },
+        },
+      },
+    });
+  }
+
+  /* ── Toggle variable pills ──────────────────────────────────────────────── */
+  window.toggleVar = function (btn) {
+    const v = btn.dataset.var;
+    if (_activeVars.includes(v)) {
+      if (_activeVars.length === 1) return; // keep at least one
+      _activeVars = _activeVars.filter(x => x !== v);
+      btn.classList.remove("active");
+    } else {
+      _activeVars.push(v);
+      btn.classList.add("active");
+    }
+    if (_lastResult) renderCmpChart(_lastResult.timeseries);
+  };
+
+  /* ── Results panel ──────────────────────────────────────────────────────── */
+  function fmt(v, digits) {
+    if (v == null) return "—";
+    return v.toExponential(digits != null ? digits : 3);
+  }
+
+  function renderResults(d) {
+    document.getElementById("res-peak-c").textContent    = fmt(d.peak_C_ven);
+    document.getElementById("res-peak-age").textContent  = d.peak_Age_yr != null ? d.peak_Age_yr.toFixed(2) : "—";
+    document.getElementById("res-final-c").textContent   = fmt(d.final_C_ven);
+    document.getElementById("res-final-age").textContent = d.final_Age_yr != null ? d.final_Age_yr.toFixed(2) : "—";
+    document.getElementById("download-btn").style.display = "inline-flex";
+  }
+
+  function renderExposureTable(d) {
+    const ts  = d.timeseries;
+    const vars = ["C_ven", "C_art", "C_milk", "BDW"];
+    const varLabels = { C_ven: "Venous blood", C_art: "Arterial blood", C_milk: "Breastmilk", BDW: "Body burden (whole)" };
+    const varColors = VAR_COLORS;
+
+    let html = "";
+    vars.forEach(v => {
+      const vals = ts.map(r => r[v]).filter(x => x != null && isFinite(x));
+      if (!vals.length) return;
+      const mean  = vals.reduce((a, b) => a + b, 0) / vals.length;
+      const peak  = Math.max(...vals);
+      const final = vals[vals.length - 1];
+      const color = varColors[v] || "#6b7280";
+      html += `<div class="pbk-exp-row">
+        <div class="pbk-exp-label" style="display:flex;align-items:center;gap:.4rem">
+          <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></span>
+          ${varLabels[v] || v}
+        </div>
+        <div class="pbk-exp-stats">
+          <div><span>Mean </span><b>${mean.toExponential(2)}</b></div>
+          <div><span>Peak </span><b>${peak.toExponential(2)}</b></div>
+          <div><span>Final </span><b>${final.toExponential(2)}</b></div>
+        </div>
+        <span style="font-size:.7rem;color:var(--pbk-slate-400)">mg/L</span>
+      </div>`;
+    });
+    document.getElementById("exposure-table").innerHTML = html ||
+      '<p style="color:var(--pbk-slate-400);font-size:.875rem;text-align:center;padding:2rem 0">No data available</p>';
+  }
+
+  function renderRunMeta(d, scenario, hl, rate, year) {
+    document.getElementById("meta-scenario").textContent = scenario;
+    document.getElementById("meta-hl").textContent       = hl + " yr";
+    document.getElementById("meta-rate").textContent     = rate + " ng/kg/min";
+    document.getElementById("meta-year").textContent     = year;
+    document.getElementById("meta-rows").textContent     = d.n_rows;
+    document.getElementById("meta-tend").textContent     = d.t_end_min != null ? d.t_end_min.toFixed(0) : "—";
+    document.getElementById("run-meta-card").style.display = "block";
+  }
+
+  /* ── CSV export ─────────────────────────────────────────────────────────── */
+  window.exportCSV = function () {
+    if (!_lastResult) return;
+    const ts   = _lastResult.timeseries;
+    const cols = Object.keys(ts[0]);
+    const rows = [cols.join(",")].concat(ts.map(r => cols.map(c => r[c] ?? "").join(",")));
+    const blob = new Blob([rows.join("\n")], { type: "text/csv" });
+    const a    = Object.assign(document.createElement("a"), {
+      href: URL.createObjectURL(blob),
+      download: `pbkfair_${_lastResult.scenario}.csv`,
+    });
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  /* ── Artifacts ──────────────────────────────────────────────────────────── */
+  const ART_MAX_BYTES   = 200 * 1024 * 1024;
+  const CURRENT_USER_ID = {{ (current_user_id or "") | tojson }};
+  const IS_ADMIN        = {{ "true" if is_admin else "false" }};
+  const CAN_UPLOAD      = {{ "true" if can_upload else "false" }};
+
+  function artErr(msg) {
+    const box = document.getElementById("artifact-error");
+    if (!box) return;
+    if (msg) { box.textContent = msg; box.classList.remove("d-none"); }
+    else      { box.classList.add("d-none"); }
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  }
+
+  function canDelete(a) { return IS_ADMIN || (CURRENT_USER_ID && a.owner_id === CURRENT_USER_ID); }
+
+  function artCard(a) {
+    let preview = "";
+    if (a.kind === "image" && a.url) preview = `<img src="${a.url}" class="img-fluid rounded" alt="${esc(a.original_name)}" style="max-height:200px;width:100%;object-fit:cover">`;
+    else if (a.kind === "video" && a.url) preview = `<video controls style="width:100%;border-radius:.5rem"><source src="${a.url}" type="${esc(a.mime)}"></video>`;
+    else preview = `<div style="color:var(--pbk-slate-400);font-size:.8rem;padding:.75rem 0">Mesh/binary — no preview</div>`;
+    const dl  = a.url  ? `<a class="pbk-btn pbk-btn-outline" href="${a.url}" download="${esc(a.original_name)}" style="font-size:.8rem;padding:.35rem .75rem">Download</a>` : "";
+    const del = canDelete(a) ? `<button class="pbk-btn pbk-btn-outline artifact-del" data-id="${a.id}" style="font-size:.8rem;padding:.35rem .75rem;color:#dc2626;border-color:#fecaca">Delete</button>` : "";
+    return `<div class="pbk-card"><div class="pbk-card-body">${preview}
+      <div style="font-size:.75rem;color:var(--pbk-slate-500);margin:.5rem 0">${esc(a.original_name)} · ${esc(a.kind)} · ${(a.size_bytes/1024).toFixed(0)} KB</div>
+      <div style="display:flex;gap:.5rem">${dl}${del}</div></div></div>`;
+  }
+
+  window.loadArtifacts = function (runId) {
+    if (!Number.isFinite(runId) || runId <= 0) { artErr("Enter a valid run ID."); return; }
+    _currentRunId = runId;
+    artErr(null);
+    const list = document.getElementById("artifact-list");
+    const form = document.getElementById("artifact-upload-form");
+    if (list) list.innerHTML = "";
+    if (form) form.style.display = "flex";
+    fetch(`/model/runs/${runId}/artifacts`)
+      .then(r => { if (r.status === 404) throw new Error("Run not found"); if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then(rows => {
+        if (!rows.length) { list.innerHTML = `<p style="color:var(--pbk-slate-400);font-size:.875rem">No artifacts for this run yet.</p>`; return; }
+        list.innerHTML = rows.map(artCard).join("");
+        list.querySelectorAll(".artifact-del").forEach(btn => {
+          btn.addEventListener("click", () => {
+            if (!confirm("Delete this artifact?")) return;
+            fetch(`/model/artifacts/${btn.dataset.id}`, { method: "DELETE" })
+              .then(r => r.ok ? loadArtifacts(_currentRunId) : r.json().then(d => { throw new Error(d.error || "Delete failed"); }))
+              .catch(err => artErr(err.message));
+          });
+        });
+      })
+      .catch(err => artErr("Could not load artifacts: " + err.message));
+  };
+
+  const uploadForm = document.getElementById("artifact-upload-form");
+  if (uploadForm) {
+    uploadForm.addEventListener("submit", e => {
+      e.preventDefault();
+      if (!_currentRunId) { artErr("Load a run first."); return; }
+      const file = document.getElementById("artifact-file").files[0];
+      if (!file) { artErr("Choose a file."); return; }
+      if (file.size > ART_MAX_BYTES) { artErr(`File exceeds 200 MB (${(file.size/1048576).toFixed(1)} MB)`); return; }
+      artErr(null);
+      const fd  = new FormData();
+      fd.append("file", file);
+      const xhr  = new XMLHttpRequest();
+      const wrap = document.getElementById("artifact-progress-wrap");
+      const bar  = document.getElementById("artifact-progress");
+      const btn  = document.getElementById("artifact-upload-btn");
+      xhr.upload.addEventListener("progress", ev => { if (ev.lengthComputable) bar.style.width = (ev.loaded/ev.total*100).toFixed(0)+"%"; });
+      xhr.addEventListener("loadstart", () => { btn.disabled = true; if(wrap) wrap.style.display="block"; bar.style.width="0%"; });
+      xhr.addEventListener("loadend",   () => { btn.disabled = false; setTimeout(() => { if(wrap) wrap.style.display="none"; }, 500); document.getElementById("artifact-file").value=""; });
+      xhr.addEventListener("load", () => { xhr.status < 300 ? loadArtifacts(_currentRunId) : artErr("Upload failed: " + (JSON.parse(xhr.responseText||"{}").error || `HTTP ${xhr.status}`)); });
+      xhr.addEventListener("error", () => artErr("Upload failed (network error)."));
+      xhr.open("POST", `/model/runs/${_currentRunId}/artifacts`);
+      xhr.send(fd);
+    });
+  }
+
+  /* ── Init ───────────────────────────────────────────────────────────────── */
+  onScenarioChange(); // seed info panel on load
+
+})();
+</script>
+{% endblock %}

@@ -69,21 +69,10 @@ BEGIN
     END LOOP;
 END $$;
 
--- Add source column to pbpk_parameter_sets (tracks how the parameter set was created)
-ALTER TABLE _fd.pbpk_parameter_sets
-    ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
-
--- Bind the epsilon-budget dataset to the FL task at creation time, so
--- per-request payloads can no longer bypass DP budget enforcement.
-ALTER TABLE _fd.fl_tasks
-    ADD COLUMN IF NOT EXISTS dataset_id UUID;
-
--- Per-round client submission ledger (binds one submission per client/round).
-CREATE TABLE IF NOT EXISTS _fd.fl_round_submissions (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    task_id         UUID NOT NULL REFERENCES _fd.fl_tasks(id) ON DELETE CASCADE,
-    round_n         INT NOT NULL,
-    client_key      TEXT NOT NULL,
-    submitted_at    TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE (task_id, round_n, client_key)
-);
+-- NOTE: schema once kept here for the PBPK and FL modules now lives with the
+-- owning plugin/kernel, so this core migration no longer depends on
+-- plugin-owned tables:
+--   * pbpk_parameter_sets.source        -> plugins/pbpk/sql/001_schema.sql
+--   * fl_tasks.dataset_id, fl_tasks,
+--     fl_round_submissions               -> plugins/horizontal_fl/sql/001_schema.sql
+--   * fl_epsilon_budget, metadata_tables.fl_eligible -> kernel/sql/002_dp_budget.sql

@@ -272,7 +272,7 @@ services:
       POSTGREST_URL: http://rest:3000
       PGRST_JWT_SECRET: ${JWT_SECRET}
       DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
-      FILE_SIZE_LIMIT: 209715200  # 200 MB — must be ≥ ARTIFACT_MAX_BYTES in src/model/routes.py
+      FILE_SIZE_LIMIT: 209715200  # 200 MB — must be ≥ ARTIFACT_MAX_BYTES in plugins/pbpk/routes.py
       STORAGE_BACKEND: file
       FILE_STORAGE_BACKEND_PATH: /var/lib/storage
       TENANT_ID: stub
@@ -422,10 +422,11 @@ services:
       # The flask-app entrypoint also re-applies these idempotently on every
       # boot, so existing DB volumes are covered without requiring a reset.
       - ./migrate_schema.sql:/docker-entrypoint-initdb.d/migrations/100-fd-schema.sql:Z
-      # Order matters: rbac_schema.sql defines _fd.current_role(), which
-      # pbpk_schema.sql's RLS policies depend on. Apply rbac first.
+      # rbac_schema.sql defines _fd.current_role(), which plugin-owned RLS
+      # policies depend on — must be applied before the plugin loader runs at
+      # Flask boot. Plugin SQL (pbpk, horizontal_fl) and kernel SQL
+      # (plugin_audit, dp_budget) are applied by the loader, not mounted here.
       - ./rbac_schema.sql:/docker-entrypoint-initdb.d/migrations/101-fd-rbac.sql:Z
-      - ./pbpk_schema.sql:/docker-entrypoint-initdb.d/migrations/102-fd-pbpk.sql:Z
       - ./demo_schema.sql:/docker-entrypoint-initdb.d/migrations/103-fd-demo.sql:Z
     ports:
     - "5433:5432"
@@ -599,7 +600,7 @@ services:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
       POSTGRES_USER: postgres
-      POSTGRES_SECRET: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB_NAME: ${POSTGRES_DB:-postgres}
 
       # Supabase: connect to Kong API gateway by service name
@@ -609,6 +610,13 @@ services:
 
       # Auto-promoted to admin on every Flask boot (_bootstrap_admin)
       ADMIN_EMAIL: ${ADMIN_EMAIL}
+
+      # Plugin selection (loader auto-discovers plugins/* otherwise).
+      #   FAIRDB_PLUGINS           — allowlist; only these load (empty = all)
+      #   FAIRDB_PLUGINS_DISABLED  — denylist; applied after the allowlist
+      # e.g. FAIRDB_PLUGINS=pbpk to run PBPK only.
+      FAIRDB_PLUGINS: ${FAIRDB_PLUGINS:-}
+      FAIRDB_PLUGINS_DISABLED: ${FAIRDB_PLUGINS_DISABLED:-}
 
       # Federated learning service (running on host machine)
       FED_API_BASE: http://host.docker.internal:7070

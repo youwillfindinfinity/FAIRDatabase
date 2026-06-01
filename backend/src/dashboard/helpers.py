@@ -1,4 +1,12 @@
-"""Utilities for saving, chunking, and importing CSV data into PostgreSQL."""
+"""Utilities for saving, chunking, and importing CSV data into PostgreSQL.
+
+KERNEL CONTRACT: ``filter_owned_tables``, ``filter_readable_tables``,
+``assert_can_read_table`` and ``assert_can_modify_table`` are re-exported by
+``kernel.rbac`` and consumed by plugins. Their signatures and semantics are a
+public contract — do not rename, reorder arguments, or change their raised
+exception types without bumping the kernel surface and migrating callers under
+``backend/plugins/``.
+"""
 
 from hashlib import sha256
 from werkzeug.utils import secure_filename
