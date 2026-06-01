@@ -1,0 +1,8 @@
+# horizontal_fl plugin runtime dependencies.
+#
+# torch is OPTIONAL: only `POST /fl/tasks/<id>/simulate` needs it, and the
+# import is lazy. The CRUD surface mounts cleanly without torch installed, so
+# the manifest does NOT list torch under `required_packages`. This file exists
+# so operators who want simulate-on-server can install torch via the standard
+# plugin-deps mechanism.
+torch>=2.11.0

@@ -1,0 +1,20 @@
+{# Sub-navigation rendered at the top of every pbpk page. Convention:
+   the global sidebar carries one flat link per plugin; in-plugin switching
+   happens here. Driven by `plugin_studies` injected by the pbpk routes — a
+   list of {slug, label, href} dicts plus a sentinel for the lifetime UI. The
+   currently rendered page is marked via `pbpk_active_tab` (slug or "lifetime").
+#}
+<ul class="nav nav-pills mb-3 pbpk-studies-tabs">
+  <li class="nav-item">
+    <a class="nav-link{% if pbpk_active_tab == 'lifetime' %} active{% endif %}" href="/model/ui">
+      Lifetime simulation
+    </a>
+  </li>
+  {% for s in plugin_studies %}
+    <li class="nav-item">
+      <a class="nav-link{% if pbpk_active_tab == s.slug %} active{% endif %}" href="{{ s.href }}">
+        {{ s.label }}
+      </a>
+    </li>
+  {% endfor %}
+</ul>

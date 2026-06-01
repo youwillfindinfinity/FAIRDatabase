@@ -75,13 +75,21 @@
                <span class="sidebar-text">Data generalization</span>
                </a>
             </li>
-            <li class="nav-item">
-               <a class="nav-link{% if current_path == '/federated/ui' %} active{% endif %}" href="/federated/ui"
-                  data-bs-toggle="tooltip" data-bs-placement="right" data-bs-title="Federated learning">
-               <i class="fa-solid fa-arrows-split-up-and-left"></i>
-               <span class="sidebar-text">Federated learning</span>
-               </a>
-            </li>
+            {# Plugin-contributed nav entries — one flat link per plugin.
+               Sub-pages live inside the plugin via in-page tabs (convention
+               documented in backend/plugins/_template/README.md). Active state
+               highlights the entry whenever the request path falls under the
+               plugin's url_prefix. #}
+            {% for entry in plugin_nav %}
+              <li class="nav-item">
+                 <a class="nav-link{% if current_path and current_path.startswith(entry.url_prefix) %} active{% endif %}"
+                    href="{{ entry.href }}"
+                    data-bs-toggle="tooltip" data-bs-placement="right" data-bs-title="{{ entry.label }}">
+                    {% if entry.get('icon') %}<i class="fa-solid fa-{{ entry.icon }}"></i>{% endif %}
+                    <span class="sidebar-text">{{ entry.label }}</span>
+                 </a>
+              </li>
+            {% endfor %}
             <li class="nav-item">
                <a class="nav-link{% if current_path == '/visualization' %} active{% endif %}" href="/visualization"
                   data-bs-toggle="tooltip" data-bs-placement="right" data-bs-title="Visualization">

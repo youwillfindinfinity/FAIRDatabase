@@ -5,9 +5,21 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends libpq5 libexpat1 curl postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python deps first for layer caching
+# Install Python deps first for layer caching. Plugin requirements files are
+# discovered and installed AFTER core, with core requirements.txt passed as a
+# pip --constraint so a plugin cannot upgrade/downgrade a shared dep version.
+# A plugin missing its requirements.txt is fine — the loader will skip-mount
+# that plugin gracefully when its required_packages are not importable.
 COPY backend/requirements.txt /app/backend/requirements.txt
-RUN pip install --no-cache-dir -r /app/backend/requirements.txt
+COPY backend/plugins/ /app/backend/plugins/
+RUN pip install --no-cache-dir -r /app/backend/requirements.txt && \
+    for req in /app/backend/plugins/*/requirements.txt; do \
+        [ -f "$req" ] || continue; \
+        echo "Installing plugin deps: $req"; \
+        pip install --no-cache-dir \
+            --constraint /app/backend/requirements.txt \
+            -r "$req"; \
+    done
 
 # Copy application code
 # Must be at repo root because app.py references ../frontend/templates and ../static

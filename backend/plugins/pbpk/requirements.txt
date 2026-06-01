@@ -1,0 +1,11 @@
+# pbpk plugin runtime dependencies.
+#
+# These are installed at image build time by the project Dockerfile (see
+# `scripts/install-plugin-deps.sh` for the venv equivalent). The shared
+# `backend/requirements.txt` is passed as a pip --constraint so versions of
+# packages declared at both levels (e.g. numpy, pandas) cannot drift.
+#
+# Listed import names must appear in `plugin.py`'s `required_packages` so the
+# loader can verify the install and skip-mount cleanly if anything is missing.
+scipy>=1.13.1,<1.15
+python-libsbml>=5.20.4

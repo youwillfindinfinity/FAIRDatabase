@@ -14,7 +14,6 @@ from flask import (
 
 from src.auth.decorators import login_required
 from .form import GrantsHandler, RoleAssignHandler, UserListHandler
-from src.federated import db as fl_db
 
 
 routes = Blueprint("admin_routes", __name__)

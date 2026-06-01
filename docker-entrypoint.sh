@@ -12,13 +12,16 @@ fi
 # Apply schema migrations idempotently before launching Flask. Both files use
 # IF NOT EXISTS / ON CONFLICT DO NOTHING, so re-running on every boot is safe.
 # This covers existing volumes that pre-date the docker-entrypoint-initdb.d mounts.
-if [ -n "${POSTGRES_HOST:-}" ] && [ -n "${POSTGRES_SECRET:-}" ]; then
+if [ -n "${POSTGRES_HOST:-}" ] && [ -n "${POSTGRES_PASSWORD:-}" ]; then
     echo "[entrypoint] applying schema migrations..."
-    # Order matters: rbac_schema.sql defines _fd.current_role(), which
-    # pbpk_schema.sql's RLS policies depend on. Apply rbac before pbpk.
-    for sql in /app/backend/migrate_schema.sql /app/backend/rbac_schema.sql /app/backend/pbpk_schema.sql; do
+    # Order matters: rbac_schema.sql defines _fd.current_role(), which any
+    # plugin-owned RLS policies depend on. Apply rbac before Flask boots so
+    # the plugin loader's apply_plugin_schema() can rely on it.
+    # Plugin SQL (pbpk, horizontal_fl) and kernel SQL (plugin_audit, dp_budget)
+    # are applied by the loader at Flask boot, not here.
+    for sql in /app/backend/migrate_schema.sql /app/backend/rbac_schema.sql; do
         if [ -f "$sql" ]; then
-            PGPASSWORD="$POSTGRES_SECRET" psql \
+            PGPASSWORD="$POSTGRES_PASSWORD" psql \
                 -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" \
                 -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB_NAME:-postgres}" \
                 -v ON_ERROR_STOP=0 -f "$sql" \
