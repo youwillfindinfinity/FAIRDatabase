@@ -680,8 +680,16 @@ if [ -f /init/webhooks.sql ]; then
     || echo "[db-init] WARN webhooks.sql"
 fi
 
+# CREATE SCHEMA ... AUTHORIZATION supabase_admin makes supabase_admin the
+# owner. To create an object owned by another role you must be a superuser or
+# a MEMBER of that role; `postgres` is neither here, so as postgres this fails
+# with "must be member of role supabase_admin" — but ONLY on a fresh volume.
+# On a populated volume the schema already exists and IF NOT EXISTS skips
+# before the privilege check, which masks the bug. This is the load-bearing
+# line for supavisor (pooler): if it fails, the pooler crash-loops. Run it as
+# supabase_admin (its password is synced to POSTGRES_PASSWORD by roles.sql).
 echo "[db-init] ensuring _supavisor schema in _supabase db"
-psql -d _supabase -v ON_ERROR_STOP=0 \
+psql -U supabase_admin -d _supabase -v ON_ERROR_STOP=0 \
   -c "CREATE SCHEMA IF NOT EXISTS _supavisor AUTHORIZATION supabase_admin" \
   || echo "[db-init] WARN _supavisor schema"
 
