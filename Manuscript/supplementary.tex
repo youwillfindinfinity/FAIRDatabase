@@ -335,13 +335,14 @@ scenarios (male child, birth year 2007, PFOA).}
 \texttt{Gestation\_StartAge\_inYear}
   & -- & -- & -- & -- \\
 \texttt{C\_milk\_input} (mg/L)
-  & 0 & [value] & [value] & [value] \\
+  & 0 & 0 & 0 & 0 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-% NOTE FOR AUTHORS: Fill in the C_milk_input and
-% Gestation_StartAge_inYear values from the scenario definitions.
+% NOTE: C_milk_input = 0 for all scenarios. Lactation PFAS transfer is
+% computed internally via C_milk = Cv_4 * PC_29 (maternal blood -> milk)
+% and is gated by LactationTotal_EndAge, not by C_milk_input.
 
 Pregnancy scenarios are activated by setting the mother's age at
 conception (\texttt{Gestation\_StartAge\_inYear}), gestational
