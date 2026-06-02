@@ -1,0 +1,606 @@
+% ============================================================
+% SUPPLEMENTARY FILE for:
+% "Integrating a FAIR-Compliant Early-Life PBK Model into FAIRDatabase:
+%  Implementation and Web Interface for PFAS Exposure Assessment
+%  in Children"
+%
+% Submitted to: Computational Toxicology
+% Special Issue: Advancing FAIR and Integrative PBK Modelling for
+%                Next-Generation Risk Assessment
+% Article type in Editorial Manager: 'VSI: FAIR and PBK'
+%
+% NOTE FOR AUTHORS:
+% This supplementary file contains all implementation-level detail that
+% was moved out of the main manuscript to maintain readability and focus.
+% The following sections are included:
+%   S1.  SBML module descriptions (moved from main text Table 1)
+%   S2.  Complete listing of 64 SBML state variables
+%   S3.  Complete REST API endpoint table (moved from main text Table 3)
+%   S4.  Chemical parameters for PFOA and PFOS
+%   S5.  Full breastfeeding scenario parameterization
+%   S6.  Installation and dependency instructions
+%   S7.  Python runner code listing (simulate_scipy.py excerpt)
+%   S8.  Role-based access control detailed table
+%   S9.  User interface detailed specifications
+%
+% Upload this file as "supplementary_material.pdf" or "supplementary.tex"
+% through Editorial Manager alongside the main manuscript.
+% ============================================================
+
+\documentclass[12pt]{article}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{amsmath}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage[margin=2.5cm]{geometry}
+
+% Code listing style
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{blue}\bfseries,
+  commentstyle=\color{gray},
+  stringstyle=\color{orange},
+  breaklines=true,
+  frame=single,
+  numbers=left,
+  numberstyle=\tiny\color{gray}
+}
+
+\title{\textbf{Supplementary File}\\[0.5em]
+\large Integrating a FAIR-Compliant Early-Life PBK Model into
+FAIRDatabase: Implementation and Web Interface for PFAS Exposure
+Assessment in Children}
+
+\author{Tu-Ky Ly, Senna Wiedeman, Roland V. Bumbuc, Vivek M. Sheraton}
+\date{}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% ============================================================
+% S1. SBML MODULE DESCRIPTIONS
+% ============================================================
+\section*{S1. SBML Module Descriptions}
+\addcontentsline{toc}{section}{S1. SBML Module Descriptions}
+
+Table~\ref{tab:sbml_modules} describes the Python source modules that
+compose the SBML encoding of the lifetime PBK model. Each module
+generates a logically distinct component of the SBML file
+\texttt{lifetime\_pbpk.xml}.
+
+To verify file integrity and support regulatory-grade reproducibility, the SHA-256 checksum of the SBML output file \texttt{lifetime\_pbpk.xml} and the Python simulation runner \texttt{simulate\_scipy.py} at the version used to generate results in this article are provided below. These checksums should be verified against the Zenodo-archived files (DOI to be registered upon acceptance) to confirm that no modification has occurred during download or transfer.
+
+\begin{table}[h]
+\centering
+\caption{SHA-256 file integrity checksums for the SBML model and simulation runner at the version used to produce the published results. Checksums are generated with \texttt{sha256sum} (GNU coreutils) and should be verified against the Zenodo-archived files upon deposition.}
+\label{tab:checksums}
+\begin{tabular}{p{4cm} p{10cm}}
+\toprule
+\textbf{File} & \textbf{SHA-256 checksum} \\
+\midrule
+\texttt{lifetime\_pbpk.xml} & \texttt{bf24441bff62f4923e148798f229b7f0867c17905b7e2a7d7aba9e97ef08e674} \\
+\texttt{runner.py} & \texttt{8685c7cd407f772b0509b38057c08b4038719610969f8068820e79a4b40ab246} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{Python source modules composing the SBML encoding of the
+lifetime PBPK model.}
+\label{tab:sbml_modules}
+\begin{tabular}{p{3.8cm} p{9.5cm}}
+\toprule
+\textbf{Module} & \textbf{Description} \\
+\midrule
+\texttt{compartments.py}
+& Compartment definitions for all maternal and foetal organs. \\
+\texttt{species.py}
+& Declaration of the 64 state variables representing PFAS
+  amounts (mg) per compartment. \\
+\texttt{parameters.py}
+& All constants and per-simulation inputs, including
+  tissue-to-plasma partition coefficients (\texttt{PC\_*}),
+  plasma protein binding parameters (albumin and
+  $\alpha_1$-acid glycoprotein), plasma elimination half-life
+  (\texttt{HalfLife}), and dietary intake rate
+  (\texttt{RateInj}). \\
+\texttt{rules\_time.py}
+& Assignment rules for simulation time, subject age, and
+  gestational timing. \\
+\texttt{rules\_growth.py}
+& A 5-phase, sex-dependent body weight model valid from birth
+  to age 85, anchored at birth weight with $C^1$ continuity
+  enforced at phase boundaries. \\
+\texttt{rules\_foetus.py}
+& Foetal weight trajectory, haematocrit, plasma protein
+  binding, and foetal organ volumes and flows. \\
+\texttt{rules\_volumes.py}
+& Maternal organ volume rules. \\
+\texttt{rules\_flows.py}
+& Cardiac output, organ blood flows, milk production flow,
+  and oral intake. \\
+\texttt{rules\_chemistry.py}
+& Tissue concentrations, enzymatic metabolism (liver, lung,
+  kidney, gut, placenta), renal elimination rate
+  (\texttt{Kelim}), and respiratory parameters. \\
+\texttt{rules\_odes.py}
+& The 64 rate rules (ODEs) governing PFAS mass balance in
+  each compartment. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+PFAS toxicokinetics are governed by multi-compartment distribution
+using plasma partition coefficients, with elimination via renal
+excretion, biliary excretion, hepatic and pulmonary metabolism,
+lactation, and a plasma-level first-order elimination pathway.
+All quantities use consistent units: time in minutes, PFAS amounts
+in mg, concentrations in mg/L, flows in L/min, body weights in kg.
+Age in years is derived as $\text{Age} = t / 525{,}960$, where $t$
+is solver time in minutes.
+
+% ============================================================
+% S2. COMPLETE LISTING OF SBML STATE VARIABLES
+% ============================================================
+\section*{S2. Complete Listing of SBML State Variables}
+\addcontentsline{toc}{section}{S2. Complete Listing of SBML State Variables}
+
+% NOTE FOR AUTHORS: Populate this table with the actual 64 species
+% names from species.py. The structure below shows the grouping.
+
+The SBML model comprises 64 state variables (species) organized
+into two physiological sub-models:
+
+\textbf{Maternal sub-model (23 compartments):} adipose, liver, kidney
+(cortex, medulla), lung, gut, brain, breast, uterus, placenta,
+amniotic fluid, venous blood pool, arterial blood pool, muscle, bone,
+skin, heart, spleen, gonads, slowly perfused tissues.
+
+\textbf{Foetal sub-model (19 compartments):} foetal liver, foetal
+kidney, foetal lung, foetal brain, foetal gut, foetal blood, foetal
+adipose, foetal muscle, foetal bone, foetal skin, foetal heart,
+foetal spleen, foetal placenta-facing compartment, and auxiliary
+mass-balance accumulators.
+
+\textbf{Mass-balance accumulators (22 terms):} cumulative urinary
+excretion, faecal excretion, lactation loss, hepatic metabolism,
+oral ingestion, and auxiliary time-series terms.
+
+To satisfy the FAIR Interoperability principle I1, each compartment category is annotated with a controlled ontology term. Table~\ref{tab:s2_ontology} provides representative ontology mappings for key state variable categories. Compartment terms are drawn from the Foundational Model of Anatomy (FMA) ontology; unit terms are drawn from the Units Ontology (UO). Full per-variable annotations are available in the SBML file's \texttt{<notes>} elements and in the FAIRDatabase \texttt{pbk\_state\_variables} table.
+
+\begin{table}[h]
+\centering
+\caption{Representative ontology annotations for SBML state variable categories (FAIR I1). FMA: Foundational Model of Anatomy; UO: Units Ontology; ChEBI: Chemical Entities of Biological Interest.}
+\label{tab:s2_ontology}
+\begin{tabular}{p{3cm} p{3cm} p{4cm} p{3.5cm}}
+\toprule
+\textbf{Variable category} & \textbf{Example variable} & \textbf{Ontology term (IRI)} & \textbf{Unit (UO IRI)} \\
+\midrule
+Liver compartment & \texttt{A\_liver} & FMA:7197 (\url{http://purl.obolibrary.org/obo/FMA_7197}) & \textmu g~(\url{http://purl.obolibrary.org/obo/UO_0000023}) \\
+Venous blood & \texttt{C\_ven} & FMA:9670 (\url{http://purl.obolibrary.org/obo/FMA_9670}) & \textmu g~L$^{-1}$ (\url{http://purl.obolibrary.org/obo/UO_0000175}) \\
+Breast milk & \texttt{C\_milk} & FMA:18074 (\url{http://purl.obolibrary.org/obo/FMA_18074}) & \textmu g~L$^{-1}$ (\url{http://purl.obolibrary.org/obo/UO_0000175}) \\
+PFOA (chemical) & \texttt{PFOA\_amount} & ChEBI:35807 (\url{https://www.ebi.ac.uk/chebi/searchId.do?chebiId=CHEBI:35807}) & \textmu g~(\url{http://purl.obolibrary.org/obo/UO_0000023}) \\
+Body weight & \texttt{BW} & NCIT:C81328 & kg~(\url{http://purl.obolibrary.org/obo/UO_0000009}) \\
+Time & \texttt{t} & SIO:000418 & year~(\url{http://purl.obolibrary.org/obo/UO_0000036}) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ============================================================
+% S3. REST API ENDPOINT TABLE
+% ============================================================
+\section*{S3. REST API Endpoints}
+\addcontentsline{toc}{section}{S3. REST API Endpoints}
+
+Table~\ref{tab:api} lists all HTTP endpoints exposed by the
+PBKFAIRModel Flask blueprint registered under the \texttt{/model}
+URL prefix in FAIRDatabase.
+
+\begin{table}[h]
+\centering
+\caption{API endpoints exposed by the PBKFAIR blueprint in FAIRDatabase.}
+\label{tab:api}
+\begin{tabular}{p{1.2cm} p{5.5cm} p{5.5cm} p{2cm}}
+\toprule
+\textbf{Method} & \textbf{Path} & \textbf{Description} &
+\textbf{Role required} \\
+\midrule
+GET  & \texttt{/model/ui}
+     & Simulation UI page
+     & Login \\
+POST & \texttt{/model/run}
+     & Execute a scenario; returns JSON summary + time-series
+     & Login \\
+GET  & \texttt{/model/scenarios}
+     & List available scenarios
+     & Public \\
+POST & \texttt{/model/parameter-sets}
+     & Store a named parameter set
+     & Admin/Curator \\
+GET  & \texttt{/model/parameter-sets}
+     & List all public parameter sets
+     & Login \\
+GET  & \texttt{/model/parameter-sets/\{id\}}
+     & Fetch one parameter set with full params
+     & Login \\
+POST & \texttt{/model/runs}
+     & Create and execute a simulation run
+     & Admin/Curator \\
+GET  & \texttt{/model/runs/\{id\}}
+     & Retrieve a simulation run result
+     & Accessor \\
+POST & \texttt{/model/runs/\{id\}/artifacts}
+     & Upload an artifact (image, CSV, mesh)
+     & Admin/Curator \\
+GET  & \texttt{/model/runs/\{id\}/artifacts}
+     & List run artifacts
+     & Accessor \\
+DELETE & \texttt{/model/artifacts/\{id\}}
+       & Delete an artifact
+       & Admin/Owner \\
+GET  & \texttt{/model/runs/\{id\}/provenance}
+     & Return W3C PROV-JSON provenance document for a run
+     & Accessor \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+A simulation is triggered via POST to \texttt{/model/run} with a JSON
+body:
+\begin{lstlisting}[language=Python, caption={Example POST request body
+for /model/run}]
+{
+    "scenario": "bf_1yr",
+    "HalfLife": 2.5,
+    "RateInj": 0.451695,
+    "BirthYear": 2007
+}
+\end{lstlisting}
+
+% ============================================================
+% S4. CHEMICAL PARAMETERS FOR PFOA AND PFOS
+% ============================================================
+\section*{S4. Chemical Parameters for PFOA and PFOS}
+\addcontentsline{toc}{section}{S4. Chemical Parameters for PFOA and PFOS}
+
+Table~\ref{tab:chem_identity} provides the machine-actionable chemical identity metadata for PFOA and PFOS following ELIXIR FAIR Cookbook guidance (FCB003). InChIKey strings permit unambiguous cross-database lookup via PubChem and ChemSpider. The ChEBI ontology IRIs satisfy the FAIR Interoperability requirement that chemical entities be annotated with controlled vocabulary terms.
+
+\begin{table}[h]
+\centering
+\caption{Chemical identity metadata for PFOA and PFOS. InChIKey and SMILES strings enable machine-actionable cross-database lookup. ChEBI IRIs provide controlled ontology annotation following FAIR Interoperability principles (I1).}
+\label{tab:chem_identity}
+\begin{tabular}{p{3.5cm} p{5cm} p{5cm}}
+\toprule
+\textbf{Property} & \textbf{PFOA} & \textbf{PFOS} \\
+\midrule
+Full name & Perfluorooctanoic acid & Perfluorooctanesulfonic acid \\
+CAS number & 335-67-1 & 1763-23-1 \\
+Molecular weight (g/mol) & 414.07 & 500.13 \\
+InChIKey & BFNBIHQBYMNNAN-UHFFFAOYSA-N & YHKPCNBQBPFSIM-UHFFFAOYSA-N \\
+SMILES & OC(=O)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)F & OS(=O)(=O)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)F \\
+ChEBI IRI & \url{https://www.ebi.ac.uk/chebi/searchId.do?chebiId=CHEBI:35807} & \url{https://www.ebi.ac.uk/chebi/searchId.do?chebiId=CHEBI:60641} \\
+PubChem CID & 9554 & 74483 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[h]
+\centering
+\caption{Reference chemical parameters for PFOA and PFOS in the
+PBK model.}
+\label{tab:chem_params}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Parameter} & \textbf{PFOA} & \textbf{PFOS} \\
+\midrule
+Plasma half-life (years)       & 2.5  & 3.5   \\
+Free plasma fraction           & 0.02 & 0.006 \\
+\texttt{HalfLife} (model var.) & 2.5  & 3.5   \\
+Reference dietary intake (ng/kg/min) & 0.451695 & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% NOTE FOR AUTHORS: Add full partition coefficients (PC_adipose,
+% PC_liver, PC_kidney, etc.) for PFOA and PFOS from parameters.py.
+
+% ============================================================
+% S5. BREASTFEEDING SCENARIO PARAMETERIZATION
+% ============================================================
+\section*{S5. Breastfeeding Scenario Parameterization}
+\addcontentsline{toc}{section}{S5. Breastfeeding Scenario Parameterization}
+
+\begin{table}[h]
+\centering
+\caption{Detailed parameterization for the four reference breastfeeding
+scenarios (male child, birth year 2007, PFOA).}
+\label{tab:scenario_params}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Parameter} & \textbf{no\_bf} & \textbf{bf\_6mo} &
+\textbf{bf\_1yr} & \textbf{bf\_3yr} \\
+\midrule
+\texttt{StopBreastmilk\_total} (min)
+  & 0 & 262,800 & 525,600 & 1,576,800 \\
+\texttt{LactationTotal\_Duration\_inWeek}
+  & 0 & 26 & 52 & 156 \\
+\texttt{Gestation\_StartAge\_inYear}
+  & -- & -- & -- & -- \\
+\texttt{C\_milk\_input} (mg/L)
+  & 0 & [value] & [value] & [value] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% NOTE FOR AUTHORS: Fill in the C_milk_input and
+% Gestation_StartAge_inYear values from the scenario definitions.
+
+Pregnancy scenarios are activated by setting the mother's age at
+conception (\texttt{Gestation\_StartAge\_inYear}), gestational
+duration (\texttt{Gestation\_Duration\_inWeek} = 40 weeks), and
+lactation duration (\texttt{LactationTotal\_Duration\_inWeek}).
+
+% ============================================================
+% S6. INSTALLATION AND DEPENDENCY INSTRUCTIONS
+% ============================================================
+\section*{S6. Installation and Dependency Instructions}
+\addcontentsline{toc}{section}{S6. Installation and Dependency Instructions}
+
+The PBKFAIRModel integration requires four additional Python packages
+appended to \texttt{FAIRDatabase/backend/requirements.txt}:
+
+\begin{lstlisting}[language=bash, caption={Additional Python dependencies}]
+python-libsbml>=5.19
+scipy>=1.11
+numpy
+pandas
+\end{lstlisting}
+
+The Flask blueprint is registered in \texttt{app.py} by adding:
+
+\begin{lstlisting}[language=Python, caption={Plugin registration --- the kernel
+loader auto-discovers plugins and mounts their blueprints; no manual
+\texttt{register\_blueprint} call is needed in \texttt{app.py}.}]
+# app.py (excerpt) -- plugins are auto-discovered:
+from kernel.loader import load_plugins
+load_plugins(app)
+# The PBPK plugin declares url_prefix="/model" in its Plugin manifest.
+\end{lstlisting}
+
+For production deployment, it is strongly recommended to wrap the
+\texttt{run\_scenario()} call in an asynchronous background worker
+(e.g., Celery with Redis) and poll for results, as synchronous
+execution blocks the HTTP request thread for 30--90 seconds per
+scenario.
+
+The complete package structure is:
+
+\begin{lstlisting}[language=bash, caption={PBKFAIRModel package structure
+within the FAIRDatabase repository}]
+FAIRDatabase/
+  PBKFAIRModel/                    # Self-contained Python package
+    lifetime_pbpk.xml              # Committed SBML model (source of truth)
+    runner.py                      # execute() public API + LSODA solver
+    sbml/                          # SBML generation modules
+      compartments.py
+      species.py
+      parameters.py
+      rules_time.py
+      rules_growth.py
+      rules_foetus.py
+      rules_volumes.py
+      rules_flows.py
+      rules_chemistry.py
+      rules_odes.py
+  backend/plugins/pbpk/            # Flask blueprint (plugin)
+    plugin.py                      # Plugin manifest (url_prefix, SQL, storage)
+    routes.py                      # REST API + HTML page endpoints
+    helpers.py                     # Parameter validation and dispatch
+    catalogue.py                   # Model catalogue DB helpers
+    studies/                       # Per-study runners and SBML files
+      ratier/
+      rovira/
+      verner/
+      generic/
+    templates/pbpk/                # Jinja2 templates
+      pbkfair.html                 # Main lifetime simulation UI
+      catalogue.html               # Model catalogue browser
+      model_detail.html            # Individual model page
+      results.html                 # Simulation results page
+    sql/
+      001_schema.sql               # Core PBPK tables
+      002_catalogue.sql            # Model catalogue tables
+\end{lstlisting}
+
+% ============================================================
+% S7. PYTHON RUNNER CODE LISTING
+% ============================================================
+\section*{S7. Python Runner Code Listing}
+\addcontentsline{toc}{section}{S7. Python Runner Code Listing}
+
+The Python simulation runner exposes the following public API:
+
+\begin{lstlisting}[language=Python, caption={PBKFAIRModel public API (\texttt{runner.py})}]
+from PBKFAIRModel import execute
+
+result = execute({
+    "scenario": "bf_1yr",   # One of: no_bf, bf_6mo, bf_1yr, bf_3yr
+    "HalfLife": 2.5,         # Plasma half-life in years (PFOA default)
+    "RateInj": 0.451695,     # Dietary intake rate in ng/kg/min
+    "BirthYear": 2007        # Subject birth year
+})
+
+# Result structure:
+# result["peak_C_ven"]   -- Peak venous plasma concentration (mg/L)
+# result["age_at_peak"]  -- Age at peak (years)
+# result["final_C_ven"]  -- Venous concentration at end (mg/L)
+# result["final_age"]    -- Age at end of simulation (years)
+# result["timeseries"]   -- DataFrame, 500 downsampled time points
+#   Columns: time (min), Age (yr), BDW (kg), C_ven (mg/L),
+#            C_art (mg/L), C_foetus_22 (mg/L), C_milk (mg/L),
+#            + mass-balance accumulators
+\end{lstlisting}
+
+% ============================================================
+% S8. ROLE-BASED ACCESS CONTROL
+% ============================================================
+\section*{S8. Role-Based Access Control}
+\addcontentsline{toc}{section}{S8. Role-Based Access Control}
+
+\begin{table}[h]
+\centering
+\caption{Role-based access control (RBAC) for PBKFAIRModel endpoints
+in FAIRDatabase.}
+\label{tab:rbac}
+\begin{tabular}{p{2.5cm} p{2.5cm} p{2.5cm} p{2.5cm} p{2.5cm}}
+\toprule
+\textbf{Permission} & \textbf{Admin} & \textbf{Curator} &
+\textbf{Accessor} & \textbf{Visualizer} \\
+\midrule
+View simulation UI          & \checkmark & \checkmark & \checkmark & \checkmark \\
+Run scenarios               & \checkmark & \checkmark & \checkmark & \checkmark \\
+Create parameter sets       & \checkmark & \checkmark & $\times$   & $\times$ \\
+Create simulation runs      & \checkmark & \checkmark & $\times$   & $\times$ \\
+Upload artifacts            & \checkmark & \checkmark & $\times$   & $\times$ \\
+View parameter sets         & \checkmark & \checkmark & \checkmark & \checkmark \\
+View simulation runs        & \checkmark & \checkmark & \checkmark & $\times$ \\
+Delete any artifact         & \checkmark & $\times$   & $\times$   & $\times$ \\
+Delete own artifact         & \checkmark & \checkmark & $\times$   & $\times$ \\
+\bottomrule
+\end{tabular}
+
+\noindent The Visualizer role is automatically assigned to newly registered users; it provides read-only access to the simulation interface and browsable parameter sets but not to persistent simulation run records.
+\end{table}
+
+% ============================================================
+% S9. USER INTERFACE DETAILED SPECIFICATIONS
+% ============================================================
+\section*{S9. User Interface Detailed Specifications}
+\addcontentsline{toc}{section}{S9. User Interface Detailed Specifications}
+
+\subsection*{S9.1 Layout and Navigation}
+
+The simulation interface extends the FAIRDatabase dashboard layout
+(Jinja2 template: \texttt{frontend/templates/model/pbkfair.html}),
+maintaining visual consistency with the broader platform. The page is
+accessible at \texttt{/model/ui} and requires user authentication.
+Four main sections: parameter configuration, simulation execution,
+results visualization, and artifact management.
+
+\subsection*{S9.2 Visualization}
+
+Results are rendered using Chart.js as a line chart of venous PFAS
+concentration (mg/L) versus subject age (years). Interactive features
+include hover tooltips, zoom and pan. A colour-blind-friendly palette
+(blue for concentration) is used with clear axis labels and units.
+
+\subsection*{S9.3 Artifact Storage}
+
+Supported upload formats: JPG, PNG, MP4, VTK, VTU, VTP (max 200 MB).
+Storage backend: Supabase Storage with signed URLs (10-minute TTL)
+for secure temporary access. Features include a real-time upload
+progress bar, inline image and video preview, one-click download with
+original filename preservation, and role-gated deletion.
+
+\subsection*{S9.4 CSV Export}
+
+A download button exports the complete time-series as a CSV file
+including all output variables (time, age, concentrations, body
+weights, mass-balance terms) at 500-point downsampled resolution.
+
+\section*{S10. Zenodo Deposition Metadata, Provenance, and Licensing}
+\addcontentsline{toc}{section}{S10. Zenodo Deposition Metadata, Provenance, and Licensing}
+
+
+\subsection*{S10.1 Zenodo Deposition Metadata}
+
+The SBML model file, Python simulation runner, and parameter datasets associated with this article will be deposited to Zenodo upon acceptance, following ELIXIR FAIR Cookbook recipe FCB009~\citep{rocca2023}. Table~\ref{tab:zenodo_meta} specifies the structured metadata fields that will be submitted with the deposition to ensure Findability (F1, F2, F4) and Reusability (R1.1) of the released artefacts.
+
+\begin{table}[h]
+\centering
+\caption{Planned Zenodo deposition metadata for PBKFAIRModel, following ELIXIR FAIR Cookbook FCB009. Fields marked {[}INSERT{]} must be completed by the corresponding author before submission.}
+\label{tab:zenodo_meta}
+\begin{tabular}{p{3.5cm} p{10cm}}
+\toprule
+\textbf{Metadata field} & \textbf{Value} \\
+\midrule
+Title & PBKFAIRModel: A FAIR-compliant PFAS Physiologically Based Kinetic Modelling Module for FAIRDatabase \\
+Creators & Tu-Ky Ly (ORCID: [INSERT]); Roland V. Bumbuc (ORCID: [INSERT]); Senna Wiedemann (ORCID: [INSERT]); Vivek M. Sheraton (ORCID: [INSERT]) \\
+Keywords & PBK modelling; PFAS; FAIR principles; SBML; early-life exposure; toxicokinetics; open science \\
+Resource type & Software \\
+Version & v1.0.0 (GitHub release tag) \\
+Access & Open \\
+Licence (code) & MIT Licence \\
+Licence (data) & CC-BY 4.0 \\
+IsSupplementTo & [INSERT article DOI] \\
+IsVersionOf & [INSERT GitHub repository URL] \\
+Communities & ELIXIR; EOSC \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection*{S10.2 Provenance Chain (W3C PROV-DM)}
+
+The provenance of each simulation run is recorded in the FAIRDatabase relational backend following the W3C Provenance Data Model (PROV-DM)~\citep{rocca2023}. Table~\ref{tab:prov_mapping} describes the mapping between the FAIRDatabase schema and the core PROV-DM concepts: \texttt{prov:Entity}, \texttt{prov:Activity}, and \texttt{prov:Agent}. This mapping satisfies FAIR Reusability principle R1.2 (data are associated with detailed provenance) and supports audit and traceability requirements for regulatory use.
+
+\begin{table}[h]
+\centering
+\caption{Mapping of FAIRDatabase simulation run schema to W3C PROV-DM concepts (FCB036). Each simulation run is fully traceable to its parameter set, SBML model version, solver configuration, and executing user.}
+\label{tab:prov_mapping}
+\begin{tabular}{p{3cm} p{4cm} p{7cm}}
+\toprule
+\textbf{PROV-DM concept} & \textbf{FAIRDatabase field} & \textbf{Description} \\
+\midrule
+\texttt{prov:Entity} & \texttt{pbk\_runs.run\_id} (UUID) & Unique identifier for each simulation run output \\
+\texttt{prov:wasDerivedFrom} & \texttt{pbk\_runs.parameter\_set\_id} & UUID of the parameter set used \\
+\texttt{prov:wasDerivedFrom} & SBML file SHA-256 checksum & Version of the model file used (see Table~\ref{tab:checksums}) \\
+\texttt{prov:generatedAtTime} & \texttt{pbk\_runs.timestamp} (UTC) & Run completion time \\
+\texttt{prov:Activity} & Simulation execution event & Solver call with LSODA, tolerances $10^{-8}$/$10^{-6}$, daily output interval \\
+\texttt{prov:used} & Solver configuration JSON & Absolute and relative tolerances, step-size controls \\
+\texttt{prov:Agent} & \texttt{pbk\_runs.user\_id} & Authenticated FAIRDatabase user (ORCID linkable) \\
+\texttt{prov:wasAttributedTo} & Authenticated user & Role-based access control enforces attribution \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+A \texttt{GET /model/runs/\{id\}/provenance} endpoint is implemented and returns a W3C PROV-JSON document for any specified run, enabling machine-readable provenance export directly from the platform. The document maps the simulation run (\texttt{prov:Entity}), the execution event (\texttt{prov:Activity}), and the authenticated user (\texttt{prov:Agent}), with \texttt{prov:wasDerivedFrom} linking the run to its originating parameter set (Figure~\ref{tab:prov_mapping}).
+
+\subsection*{S10.3 Licence Declarations}
+
+The following licences apply to each component of the released software and data, following ELIXIR FAIR Cookbook recipes FCB032 and FCB033~\citep{rocca2023}. Code and model files are released under the MIT Licence, which permits reuse, modification, and redistribution with attribution. Parameter value tables and simulation output exports are released under Creative Commons Attribution 4.0 International (CC-BY 4.0), which permits sharing and adaptation with attribution. Neither licence restricts commercial use.
+
+\begin{table}[h]
+\centering
+\caption{Per-component licence declarations for all released artefacts (FAIR R1.1). SPDX identifiers enable machine-readable licence annotation.}
+\label{tab:licences}
+\begin{tabular}{p{5.5cm} p{4cm} p{3.5cm}}
+\toprule
+\textbf{Component} & \textbf{Licence} & \textbf{SPDX identifier} \\
+\midrule
+\texttt{lifetime\_pbpk.xml} (SBML model) & MIT Licence & \texttt{MIT} \\
+\texttt{simulate\_scipy.py} (runner) & MIT Licence & \texttt{MIT} \\
+PBKFAIRModel Python package & MIT Licence & \texttt{MIT} \\
+Parameter value tables (S4) & CC-BY 4.0 & \texttt{CC-BY-4.0} \\
+Simulation output CSV exports & CC-BY 4.0 & \texttt{CC-BY-4.0} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% -------------------------------------------------------
+% S10.4 FAIRness SELF-ASSESSMENT (AUTHOR ACTION -- not for print)
+% -------------------------------------------------------
+% After Zenodo deposition, evaluate the record using:
+%   (a) FAIR Evaluator: https://w3id.org/AmIFAIR  (input: Zenodo DOI)
+%   (b) FAIRshake: https://fairshake.cloud
+%       Rubric: "FAIR Metrics by Mark Wilkinson"
+% Insert the per-principle scores into the FAIR Compliance table
+% in the main manuscript (Table X) before final submission.
+
