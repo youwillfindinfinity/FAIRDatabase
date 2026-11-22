@@ -2,7 +2,7 @@
 {% block title %}FAIRMicrobiome | Search{% endblock %}
 {% block content %}
 <div class="container mt-4">
-<form action="/dashboard/search" method="post" id="search">
+<form action="/dashboard/search" method="post" id="search">{{ csrf_input() }}
    <div class="row">
       <div class="col-md-1"></div>
       <div class="col-md-10" >
